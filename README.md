@@ -164,7 +164,7 @@ Project Jesse will implement the following intelligent agent workflows powered b
 ### To create an initial n8n agent use the following prompt with a description of the agent in your fav LLM.
 
 ```
-Create a n8n agentic workflow with a LLM controller for the following;
+Create a n8n agentic workflow with a LLM controller in JSON for the following;
 ```
 
 ### Appendix A: Intelligent Agent Workflows
