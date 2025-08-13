@@ -19,7 +19,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 1) AI Job Posting Harvester
 
-**File:** [Jesse — AI\_Job\_Posting\_Harvester.json](./Jesse_0AI_Job_Posting_Harvester.json)
+**File:** [Jesse — AI\_Job\_Posting\_Harvester.json](./Jesse_AI_Job_Posting_Harvester.json)
 
 **What it does**
 
@@ -38,7 +38,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 2) AI Syllabi Analysis Agent
 
-**File:** [Jesse — AI\_Syllabi\_Analysis\_Agent.json](./Jesse_0AI_Syllabi_Analysis_Agent.json)
+**File:** [Jesse — AI\_Syllabi\_Analysis\_Agent.json](./Jesse_AI_Syllabi_Analysis_Agent.json)
 
 **What it does**
 
@@ -58,7 +58,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 3) AI SkillsLex Enrichment Agent
 
-**File:** [Jesse — AI\_SkillsLex\_Enrichment\_Agent.json](./Jesse_0AI_SkillsLex_Enrichment_Agent.json)
+**File:** [Jesse — AI\_SkillsLex\_Enrichment\_Agent.json](./Jesse_AI_SkillsLex_Enrichment_Agent.json)
 
 **What it does**
 
@@ -77,7 +77,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 4) AI Cross-Domain Alignment Agent
 
-**File:** [Jesse — AI\_Cross\_Domain\_Alignment\_Agent.json](./Jesse_0AI_Cross_Domain_Alignment_Agent.json)
+**File:** [Jesse — AI\_Cross\_Domain\_Alignment\_Agent.json](./Jesse_AI_Cross_Domain_Alignment_Agent.json)
 
 **What it does**
 
@@ -96,7 +96,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 5) AI Data Quality Assurance Agent
 
-**File:** [Jesse — AI\_Data\_Quality\_Assurance\_Agent.json](./Jesse_0AI_Data_Quality_Assurance_Agent.json)
+**File:** [Jesse — AI\_Data\_Quality\_Assurance\_Agent.json](./Jesse_AI_Data_Quality_Assurance_Agent.json)
 
 **What it does**
 
@@ -116,7 +116,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 6) AI Trend Analysis Agent
 
-**File:** [Jesse — AI\_Trend\_Analysis\_Agent.json](./Jesse_0AI_Trend_Analysis_Agent.json)
+**File:** [Jesse — AI\_Trend\_Analysis\_Agent.json](./Jesse_AI_Trend_Analysis_Agent.json)
 
 **What it does**
 
@@ -135,7 +135,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 7) AI User Interaction Agent
 
-**File:** [Jesse — AI\_User\_Interaction\_Agent.json](./Jesse_0AI_User_Interaction_Agent.json)
+**File:** [Jesse — AI\_User\_Interaction\_Agent.json](./Jesse_AI_User_Interaction_Agent.json)
 
 **What it does**
 
@@ -154,7 +154,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ### 8) AI Educational Pathways Agent
 
-**File:** [Jesse — AI\_Educational\_Pathways\_Agent.json](./Jesse_0AI_Educational_Pathways_Agent.json)
+**File:** [Jesse — AI\_Educational\_Pathways\_Agent.json](./Jesse_AI_Educational_Pathways_Agent.json)
 
 **What it does**
 
