@@ -1,5 +1,5 @@
 {
-  "name": "Jesse — AI Job Posting Harvester (Simplified)",
+  "name": "Jesse — AI Job Posting Harvester",
   "nodes": [
     {
       "parameters": {},
@@ -17,7 +17,7 @@
             { "name": "REGION", "value": "United States" },
             { "name": "LANGUAGE", "value": "en" },
             { "name": "CONFIDENCE_THRESHOLD", "value": "0.72" },
-            { "name": "MAX_NEW_SOURCES", "value": "3" },
+            { "name": "MAX_NEW_SOURCES", "value": "5" },
             { "name": "DISCORD_CHANNEL_ID", "value": "" }
           ]
         }
@@ -30,18 +30,18 @@
     },
     {
       "parameters": {
-        "content": "={\n  \"search_queries\": [\n    \"site:lever.co machine learning engineer\",\n    \"site:greenhouse.io data scientist\",\n    \"site:workday.com product manager\"\n  ],\n  \"crawl_budget\": 20,\n  \"priority_rules\": [\n    \"prefer postings with skills blocks\",\n    \"prefer recent < 30 days\"\n  ],\n  \"extraction_instructions\": {\n    \"fields\": [\n      \"title\",\n      \"company\",\n      \"location\",\n      \"posted_date\",\n      \"employment_type\",\n      \"description\",\n      \"requirements\",\n      \"skills\"\n    ],\n    \"format\": \"json\",\n    \"few_shots\": [\n      {\n        \"html_excerpt\": \"<div class=\\\"job\\\">Skills: Python, SQL, AWS</div>\",\n        \"output\": {\"skills\": [\"Python\", \"SQL\", \"AWS\"]}\n      },\n      {\n        \"html_excerpt\": \"<ul><li>Proficiency in TensorFlow or PyTorch</li></ul>\",\n        \"output\": {\"skills\": [\"TensorFlow\", \"PyTorch\"]}\n      }\n    ]\n  },\n  \"uncertainty_policy\": {\n    \"metric\": \"soft_confidence\",\n    \"threshold\": {{$node[\"Config\"].json.CONFIDENCE_THRESHOLD || 0.72}},\n    \"retry_max\": 1,\n    \"on_low_confidence\": \"save_anyway_and_notify\"\n  }\n}",
+        "content": "={\n  \"search_queries\": [\n    \"site:lever.co machine learning engineer\",\n    \"site:greenhouse.io data scientist\",\n    \"site:workday.com product manager\",\n    \"site:jobs.lever.co ai research\",\n    \"site:boards.greenhouse.io machine learning\"\n  ],\n  \"crawl_budget\": 20,\n  \"priority_rules\": [\n    \"prefer postings with skills blocks\",\n    \"prefer recent < 30 days\"\n  ],\n  \"extraction_instructions\": {\n    \"fields\": [\n      \"title\",\n      \"company\",\n      \"location\",\n      \"posted_date\",\n      \"employment_type\",\n      \"description\",\n      \"requirements\",\n      \"skills\"\n    ],\n    \"format\": \"json\",\n    \"few_shots\": [\n      {\n        \"html_excerpt\": \"<div class=\\\"job\\\">Skills: Python, SQL, AWS</div>\",\n        \"output\": {\"skills\": [\"Python\", \"SQL\", \"AWS\"]}\n      },\n      {\n        \"html_excerpt\": \"<ul><li>Proficiency in TensorFlow or PyTorch</li></ul>\",\n        \"output\": {\"skills\": [\"TensorFlow\", \"PyTorch\"]}\n      }\n    ]\n  },\n  \"uncertainty_policy\": {\n    \"metric\": \"soft_confidence\",\n    \"threshold\": {{$node[\"Config\"].json.CONFIDENCE_THRESHOLD || 0.72}},\n    \"retry_max\": 1,\n    \"on_low_confidence\": \"save_anyway_and_notify\"\n  }\n}",
         "options": {}
       },
-      "id": "DemoPlan",
-      "name": "Demo LLM Plan",
+      "id": "DemoLLMPlan",
+      "name": "Demo LLM Plan (Static)",
       "type": "n8n-nodes-base.textTemplate",
       "typeVersion": 1,
       "position": [500, 300]
     },
     {
       "parameters": {
-        "functionCode": "// Parse the plan from the text template\nlet plan;\ntry {\n  const planData = $node['DemoPlan'].json;\n  if (typeof planData === 'string') {\n    plan = JSON.parse(planData);\n  } else {\n    plan = planData;\n  }\n} catch (e) {\n  console.log('Error parsing plan:', e.message);\n  plan = {\n    search_queries: [\n      'site:lever.co engineer',\n      'site:greenhouse.io data scientist'\n    ],\n    extraction_instructions: {\n      fields: ['title', 'company', 'location', 'posted_date', 'employment_type', 'description', 'requirements', 'skills']\n    }\n  };\n}\n\nreturn [{ json: plan }];"
+        "functionCode": "// Parse the controller plan\nlet plan;\ntry {\n  const planData = $node['DemoLLMPlan'].json;\n  if (typeof planData === 'string') {\n    plan = JSON.parse(planData);\n  } else {\n    plan = planData;\n  }\n} catch (e) {\n  console.log('Error parsing plan:', e.message);\n  plan = {\n    search_queries: ['site:lever.co engineer', 'site:greenhouse.io data scientist'],\n    extraction_instructions: {\n      fields: ['title', 'company', 'location', 'skills']\n    }\n  };\n}\n\nreturn [{ json: plan }];"
       },
       "id": "ParsePlan",
       "name": "Parse Controller Plan",
@@ -51,7 +51,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Split search queries into individual items\nlet qs = [];\ntry {\n  if (Array.isArray($node['ParsePlan'].json.search_queries)) {\n    qs = $node['ParsePlan'].json.search_queries;\n  }\n} catch (e) {\n  console.log('Error getting search queries:', e.message);\n  qs = ['site:lever.co engineer'];\n}\n\n// Limit to max number from config\nconst max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 3, 10);\nreturn qs.slice(0, max).map(q => ({ json: { query: q } }));"
+        "functionCode": "// Split search queries into separate items\nconst qs = Array.isArray($node['ParsePlan'].json.search_queries) \n  ? $node['ParsePlan'].json.search_queries \n  : ['site:lever.co engineer'];\n\nconst max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 5, 10);\nreturn qs.slice(0, max).map(q => ({ json: { query: q } }));"
       },
       "id": "SplitQueries",
       "name": "Split Search Queries",
@@ -71,7 +71,7 @@
     },
     {
       "parameters": {
-        "content": "={\n  \"results\": [\n    {\n      \"title\": \"Machine Learning Engineer\",\n      \"link\": \"https://example.com/jobs/12345\",\n      \"snippet\": \"Example company is looking for a skilled Machine Learning Engineer...\"\n    },\n    {\n      \"title\": \"Senior Data Scientist\",\n      \"link\": \"https://example.com/jobs/67890\",\n      \"snippet\": \"Join our data science team to work on cutting-edge AI solutions...\"\n    }\n  ]\n}",
+        "content": "={\n  \"results\": [\n    {\n      \"title\": \"Search Result 1\",\n      \"link\": \"https://example.com/jobs/12345\",\n      \"snippet\": \"Example job posting for a software engineer position...\"\n    },\n    {\n      \"title\": \"Search Result 2\",\n      \"link\": \"https://example.com/jobs/67890\",\n      \"snippet\": \"Another job posting for a data scientist role...\"\n    }\n  ]\n}",
         "options": {}
       },
       "id": "DemoSearchResults",
@@ -82,7 +82,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extract URLs from search results\nlet results;\ntry {\n  const resultsData = $node['DemoSearchResults'].json;\n  if (typeof resultsData === 'string') {\n    results = JSON.parse(resultsData);\n  } else {\n    results = resultsData;\n  }\n} catch (e) {\n  console.log('Error parsing search results:', e.message);\n  results = { results: [] };\n}\n\n// Extract links from results\nconst links = [];\ntry {\n  if (results.results && Array.isArray(results.results)) {\n    for (const r of results.results) {\n      if (r.link) links.push(r.link);\n    }\n  }\n} catch (e) {\n  console.log('Error extracting links:', e.message);\n}\n\n// If no links found, create a demo link\nif (links.length === 0) {\n  links.push('https://example.com/jobs/demo-job');\n}\n\nreturn links.map(url => ({ json: { url } }));"
+        "functionCode": "// Extract URLs from search results\nlet results;\ntry {\n  const resultsData = $node['DemoSearchResults'].json;\n  if (typeof resultsData === 'string') {\n    results = JSON.parse(resultsData);\n  } else {\n    results = resultsData;\n  }\n} catch (e) {\n  console.log('Error parsing search results:', e.message);\n  results = { results: [] };\n}\n\nconst links = (results.results || []).map(r => r.link || '').filter(Boolean);\n\n// If no links found, create a demo link\nif (links.length === 0) {\n  links.push('https://example.com/jobs/demo-job');\n}\n\nreturn links.map(url => ({ json: { url } }));"
       },
       "id": "ExtractURLs",
       "name": "Extract Result URLs",
@@ -116,15 +116,15 @@
         "content": "={\n  \"title\": \"Senior Machine Learning Engineer\",\n  \"company\": \"Example Tech Inc.\",\n  \"location\": \"San Francisco, CA (Remote)\",\n  \"posted_date\": \"June 15, 2025\",\n  \"employment_type\": \"Full-time\",\n  \"description\": \"Example Tech is looking for a Senior Machine Learning Engineer to join our AI team. You will be responsible for developing and deploying machine learning models to improve our product recommendations.\",\n  \"requirements\": [\n    \"5+ years of experience in machine learning or related field\",\n    \"Strong programming skills in Python\",\n    \"Experience with deep learning frameworks\",\n    \"MS or PhD in Computer Science, AI, or related field\"\n  ],\n  \"skills\": [\n    \"Python\",\n    \"TensorFlow\",\n    \"PyTorch\",\n    \"SQL\",\n    \"AWS\",\n    \"GCP\",\n    \"Docker\"\n  ],\n  \"source_url\": \"{{$json.url}}\",\n  \"soft_confidence\": 0.85,\n  \"needs_review\": false,\n  \"reasons\": []\n}",
         "options": {}
       },
-      "id": "DemoParser",
-      "name": "Demo Parser Result",
+      "id": "DemoLLMParser",
+      "name": "Demo LLM Parser Result",
       "type": "n8n-nodes-base.textTemplate",
       "typeVersion": 1,
       "position": [2100, 300]
     },
     {
       "parameters": {
-        "functionCode": "// Parse the extraction result\nlet parsed;\ntry {\n  const parserData = $node['DemoParser'].json;\n  if (typeof parserData === 'string') {\n    parsed = JSON.parse(parserData);\n  } else {\n    parsed = parserData;\n  }\n} catch (e) {\n  console.log('Error parsing result:', e.message);\n  parsed = {};\n}\n\n// Add the source URL if not present\nif (!parsed.source_url) {\n  parsed.source_url = $json.url || 'https://example.com/jobs/demo';\n}\n\n// Assess confidence\nconst threshold = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72);\nconst isConfident = (parsed.soft_confidence || 0) >= threshold && \n                    Array.isArray(parsed.skills) && \n                    parsed.skills.length > 0 && \n                    parsed.title && \n                    parsed.company;\n\nreturn [{ \n  json: { \n    parsed, \n    isConfident, \n    threshold \n  } \n}];"
+        "functionCode": "// Parse the extraction result\nlet parsed;\ntry {\n  const parserData = $node['DemoLLMParser'].json;\n  if (typeof parserData === 'string') {\n    parsed = JSON.parse(parserData);\n  } else {\n    parsed = parserData;\n  }\n} catch (e) {\n  console.log('Error parsing LLM result:', e.message);\n  parsed = {};\n}\n\n// Add the source URL if not present\nif (!parsed.source_url) {\n  parsed.source_url = $json.url || 'https://example.com/jobs/demo-job';\n}\n\n// Assess confidence\nconst threshold = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72);\nconst isConfident = (parsed.soft_confidence || 0) >= threshold && \n                  Array.isArray(parsed.skills) && \n                  parsed.skills.length > 0 && \n                  parsed.title && \n                  parsed.company;\n\nreturn [{ \n  json: { \n    parsed, \n    isConfident, \n    threshold \n  } \n}];"
       },
       "id": "AssessResult",
       "name": "Assess Parser Result",
@@ -134,63 +134,24 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{$json.isConfident}}",
-              "operation": "isTrue"
-            }
-          ]
-        }
-      },
-      "id": "ConfidenceCheck",
-      "name": "Check Confidence",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [2500, 300]
-    },
-    {
-      "parameters": {
-        "content": "={\n  \"title\": \"{{$json.parsed.title || 'Unknown Job Title'}}\",\n  \"company\": \"{{$json.parsed.company || 'Unknown Company'}}\",\n  \"location\": \"{{$json.parsed.location || 'Remote/Unspecified'}}\",\n  \"posted_date\": \"{{$json.parsed.posted_date || 'Unknown Date'}}\",\n  \"employment_type\": \"{{$json.parsed.employment_type || 'Full-time'}}\",\n  \"description\": \"{{$json.parsed.description || 'No description available'}}\",\n  \"requirements\": {{JSON.stringify($json.parsed.requirements || [])}},\n  \"skills\": {{JSON.stringify($json.parsed.skills || [])}},\n  \"source_url\": \"{{$json.parsed.source_url}}\",\n  \"soft_confidence\": {{$json.parsed.soft_confidence || 0.9}},\n  \"needs_review\": false,\n  \"reasons\": []\n}",
-        "options": {}
-      },
-      "id": "HighConfidenceResult",
-      "name": "High Confidence Result",
-      "type": "n8n-nodes-base.textTemplate",
-      "typeVersion": 1,
-      "position": [2700, 250]
-    },
-    {
-      "parameters": {
-        "content": "={\n  \"title\": \"{{$json.parsed.title || 'Unknown Job Title'}}\",\n  \"company\": \"{{$json.parsed.company || 'Unknown Company'}}\",\n  \"location\": \"{{$json.parsed.location || 'Remote/Unspecified'}}\",\n  \"posted_date\": \"{{$json.parsed.posted_date || 'Unknown Date'}}\",\n  \"employment_type\": \"{{$json.parsed.employment_type || 'Full-time'}}\",\n  \"description\": \"{{$json.parsed.description ? $json.parsed.description.substring(0, 100) + '...' : 'No description available'}}\",\n  \"requirements\": {{JSON.stringify($json.parsed.requirements || [])}},\n  \"skills\": {{JSON.stringify($json.parsed.skills || [])}},\n  \"source_url\": \"{{$json.parsed.source_url}}\",\n  \"soft_confidence\": {{$json.parsed.soft_confidence || 0.6}},\n  \"needs_review\": true,\n  \"reasons\": [\"low-confidence\", \"missing fields\"]\n}",
-        "options": {}
-      },
-      "id": "LowConfidenceResult",
-      "name": "Low Confidence Result",
-      "type": "n8n-nodes-base.textTemplate",
-      "typeVersion": 1,
-      "position": [2700, 350]
-    },
-    {
-      "parameters": {
-        "functionCode": "// Build the final record\nlet recordData;\ntry {\n  if ($json.isConfident) {\n    recordData = $node['HighConfidenceResult'].json;\n  } else {\n    recordData = $node['LowConfidenceResult'].json;\n  }\n  \n  if (typeof recordData === 'string') {\n    recordData = JSON.parse(recordData);\n  }\n} catch (e) {\n  console.log('Error getting record data:', e.message);\n  recordData = {};\n}\n\n// Add timestamp\nconst now = new Date().toISOString();\nrecordData.harvest_run_ts = now;\n\nreturn [{ json: { record: recordData } }];"
+        "functionCode": "// Build the final record\nconst p = $json.parsed || {};\nconst now = new Date().toISOString();\n\nconst record = {\n  title: p.title || 'Unknown Title',\n  company: p.company || 'Unknown Company',\n  location: p.location || null,\n  posted_date: p.posted_date || null,\n  employment_type: p.employment_type || null,\n  description: p.description || null,\n  requirements: Array.isArray(p.requirements) ? p.requirements : [],\n  skills: Array.isArray(p.skills) ? p.skills : [],\n  source_url: p.source_url || $json.url || null,\n  soft_confidence: p.soft_confidence || 0,\n  needs_review: !$json.isConfident,\n  reasons: Array.isArray(p.reasons) ? p.reasons : [],\n  harvest_run_ts: now\n};\n\n// If it needs review, add a reason\nif (record.needs_review && !record.reasons.includes('low-confidence')) {\n  record.reasons.push('low-confidence');\n}\n\nreturn [{ json: { record } }];"
       },
       "id": "BuildRecord",
       "name": "Build JSON Record",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2900, 300]
+      "position": [2500, 300]
     },
     {
       "parameters": {
-        "path": "=/jesse/job_harvester/{{$json.record.company.replace(/[^a-zA-Z0-9]/g, '_')}}_{{$json.record.title.replace(/[^a-zA-Z0-9]/g, '_')}}.json",
+        "path": "=/jesse/job_harvester/{{$json.record.company}}_{{$json.record.title}}.json",
         "options": {}
       },
       "id": "WriteFile",
       "name": "Write Result to File",
       "type": "n8n-nodes-base.writeBinaryFile",
       "typeVersion": 1,
-      "position": [3100, 200]
+      "position": [2700, 200]
     },
     {
       "parameters": {
@@ -207,7 +168,7 @@
       "name": "Check if Discord is Configured",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [3100, 300]
+      "position": [2700, 300]
     },
     {
       "parameters": {
@@ -220,7 +181,7 @@
       "name": "Discord: Notify",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 1,
-      "position": [3300, 250]
+      "position": [2900, 250]
     },
     {
       "parameters": {
@@ -229,7 +190,7 @@
             {
               "value1": "={{$node['SplitURLs'].context.currentRunIndex}}",
               "operation": "smaller",
-              "value2": 2
+              "value2": 1
             }
           ]
         }
@@ -238,7 +199,7 @@
       "name": "Check for More URLs",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [3100, 400]
+      "position": [2700, 400]
     },
     {
       "parameters": {},
@@ -246,7 +207,7 @@
       "name": "Next URL",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [3300, 400]
+      "position": [2900, 400]
     },
     {
       "parameters": {},
@@ -254,7 +215,7 @@
       "name": "Workflow Complete",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [3300, 500]
+      "position": [2900, 500]
     }
   ],
   "connections": {
@@ -273,14 +234,14 @@
       "main": [
         [
           {
-            "node": "DemoPlan",
+            "node": "DemoLLMPlan",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "DemoPlan": {
+    "DemoLLMPlan": {
       "main": [
         [
           {
@@ -361,14 +322,14 @@
       "main": [
         [
           {
-            "node": "DemoParser",
+            "node": "DemoLLMParser",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "DemoParser": {
+    "DemoLLMParser": {
       "main": [
         [
           {
@@ -380,46 +341,6 @@
       ]
     },
     "AssessResult": {
-      "main": [
-        [
-          {
-            "node": "ConfidenceCheck",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "ConfidenceCheck": {
-      "main": [
-        [
-          {
-            "node": "HighConfidenceResult",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "LowConfidenceResult",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HighConfidenceResult": {
-      "main": [
-        [
-          {
-            "node": "BuildRecord",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LowConfidenceResult": {
       "main": [
         [
           {
