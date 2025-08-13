@@ -1,349 +1,477 @@
 {
-  "_comment": "Jesse — AI_Educational_Pathways_Agent.json",
-  "name": "Jesse — AI Educational Pathways Agent (Autonomous, Discord, JSON)",
+  "name": "Jesse — AI Educational Pathways Agent",
   "nodes": [
-    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
-
+    {
+      "parameters": {},
+      "id": "Start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
     {
       "parameters": {
         "values": {
           "string": [
-            { "name": "WEBHOOK_PATH", "value": "project-jesse/edu-pathways" },
-            { "name": "FEEDBACK_WEBHOOK_PATH", "value": "project-jesse/edu-pathways-feedback" },
-            { "name": "PROFILE_SOURCE_URL", "value": "https://api.example.com/jesse/profiles" },
-            { "name": "COURSES_SOURCE_URL", "value": "https://api.example.com/jesse/courses" },
-            { "name": "PREREQS_SOURCE_URL", "value": "https://api.example.com/jesse/prereqs" },
-            { "name": "PROGRAMS_SOURCE_URL", "value": "https://api.example.com/jesse/programs" },
-            { "name": "CAREERS_SOURCE_URL", "value": "https://api.example.com/jesse/careers" },
-            { "name": "SKILLSLEX_SOURCE_URL", "value": "https://api.example.com/jesse/skillslex" },
-            { "name": "JSON_SINK_URL", "value": "" },
-            { "name": "DISCORD_CHANNEL_ID", "value": "" },
-            { "name": "LANGUAGE", "value": "en" },
-            { "name": "REGION", "value": "United States" },
             { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
-            { "name": "K_CANDIDATES", "value": "10" },
+            { "name": "K_CANDIDATES", "value": "3" },
             { "name": "DEFAULT_CREDITS_PER_COURSE", "value": "3" },
             { "name": "MAX_TERMS", "value": "8" },
-            { "name": "MAX_CREDITS_PER_TERM", "value": "15" }
+            { "name": "MAX_CREDITS_PER_TERM", "value": "15" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "REGION", "value": "United States" }
           ]
         }
       },
       "id": "Config",
       "name": "Config",
       "type": "n8n-nodes-base.set",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [300, 300]
     },
-
     {
       "parameters": {
-        "path": "={{$node['Config'].json.WEBHOOK_PATH}}",
-        "options": { "responseData": "received", "responseCode": 200 }
+        "content": "={\n  \"student_id\": \"demo-student-001\",\n  \"session_id\": \"demo-session-{{ Date.now() }}\",\n  \"career_goal\": \"data scientist\",\n  \"constraints\": {\n    \"max_terms\": {{$node['Config'].json.MAX_TERMS}},\n    \"max_credits_per_term\": {{$node['Config'].json.MAX_CREDITS_PER_TERM}},\n    \"modality\": \"any\",\n    \"budget\": null,\n    \"time_horizon_months\": 24\n  },\n  \"aptitudes\": {\n    \"math\": \"high\",\n    \"programming\": \"avg\",\n    \"writing\": \"avg\"\n  },\n  \"preferences\": {\n    \"pace\": \"balanced\"\n  }\n}",
+        "options": {}
       },
-      "id": "WebhookIn",
-      "name": "Webhook: Receive Pathways Request",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1
+      "id": "DemoInput",
+      "name": "Demo Student Request",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [500, 200]
     },
-
     {
       "parameters": {
-        "functionCode": "const src = $json.body || $json || {}; const student_id = src.student_id || 'demo-student-001'; const session_id = src.session_id || (student_id + '-' + Date.now()); const career_goal = src.career_goal || 'data scientist'; const constraints = src.constraints || { max_terms: parseInt($node['Config'].json.MAX_TERMS||8,10), max_credits_per_term: parseInt($node['Config'].json.MAX_CREDITS_PER_TERM||15,10), modality: src.modality||'any', budget: src.budget||null, time_horizon_months: src.time_horizon_months||null }; const aptitudes = src.aptitudes || { math: 'avg', programming: 'avg', writing: 'avg' }; const preferences = src.preferences || { pace: 'balanced' }; return [{ json: { student_id, session_id, career_goal, constraints, aptitudes, preferences } }];"
+        "functionCode": "// Normalize input request\nlet src;\ntry {\n  const inputData = $node['DemoInput'].json;\n  if (typeof inputData === 'string') {\n    src = JSON.parse(inputData);\n  } else {\n    src = inputData;\n  }\n} catch (e) {\n  console.log('Error parsing input:', e.message);\n  src = {};\n}\n\n// Extract and normalize fields with defaults\nconst student_id = src.student_id || 'demo-student-001';\nconst session_id = src.session_id || (student_id + '-' + Date.now());\nconst career_goal = src.career_goal || 'data scientist';\nconst constraints = src.constraints || {\n  max_terms: parseInt($node['Config'].json.MAX_TERMS || 8, 10),\n  max_credits_per_term: parseInt($node['Config'].json.MAX_CREDITS_PER_TERM || 15, 10),\n  modality: src.modality || 'any',\n  budget: src.budget || null,\n  time_horizon_months: src.time_horizon_months || null\n};\nconst aptitudes = src.aptitudes || {\n  math: 'avg',\n  programming: 'avg',\n  writing: 'avg'\n};\nconst preferences = src.preferences || {\n  pace: 'balanced'\n};\n\nreturn [{\n  json: {\n    student_id,\n    session_id,\n    career_goal,\n    constraints,\n    aptitudes,\n    preferences\n  }\n}];"
       },
       "id": "NormalizeInput",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [700, 300]
     },
-
     {
       "parameters": {
-        "operation": "getAll",
-        "dataMode": "autoMapInputData",
-        "schema": { "schemaType": "define", "fields": [ { "fieldName": "policy_memory", "type": "string" }, { "fieldName": "updated_ts", "type": "string" } ] }
+        "content": "={\n  \"policy_memory\": {\n    \"weights\": {\n      \"career_alignment\": 0.42,\n      \"time_to_completion\": 0.18,\n      \"workload_balance\": 0.16,\n      \"cost\": 0.14,\n      \"prereq_risk\": 0.10\n    },\n    \"epsilon\": 0.15,\n    \"feedback_count\": 28,\n    \"last_updated\": \"2025-06-01T14:30:00Z\"\n  }\n}",
+        "options": {}
       },
-      "id": "LoadPolicy",
-      "name": "Load Policy Memory (optional)",
-      "type": "n8n-nodes-base.dataStore",
-      "typeVersion": 1
+      "id": "DemoPolicyMemory",
+      "name": "Demo Policy Memory",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [700, 200]
     },
-
     {
       "parameters": {
-        "functionCode": "let latest=null; for (const it of items){ const j=it.json||{}; if(!latest || (new Date(j.updated_ts||0) > new Date(latest.updated_ts||0))) latest=j; } const memory = latest && latest.policy_memory ? JSON.parse(latest.policy_memory) : {}; return [{ json: { policy_memory: memory } }];"
+        "content": "={\n  \"objective_weights\": {\n    \"career_alignment\": 0.40,\n    \"time_to_completion\": 0.20,\n    \"workload_balance\": 0.15,\n    \"cost\": 0.15,\n    \"prereq_risk\": 0.10\n  },\n  \"constraints_defaults\": {\n    \"max_terms\": {{$node['Normalize Input'].json.constraints.max_terms || 8}},\n    \"max_credits_per_term\": {{$node['Normalize Input'].json.constraints.max_credits_per_term || 15}},\n    \"modality\": \"any\"\n  },\n  \"rl\": {\n    \"algorithm\": \"policy-search\",\n    \"episodes\": 5,\n    \"exploration\": \"epsilon-greedy\",\n    \"epsilon\": 0.2\n  },\n  \"candidate_strategy\": {\n    \"k_paths\": {{$node['Config'].json.K_CANDIDATES || 3}},\n    \"diversity\": true\n  },\n  \"counterfactual_policy\": {\n    \"variants\": [\n      \"swap_electives\",\n      \"accelerate_core\",\n      \"balance_workload\",\n      \"lower_cost\"\n    ]\n  },\n  \"explainability\": {\n    \"per_step\": true,\n    \"global\": true\n  }\n}",
+        "options": {}
       },
-      "id": "PickPolicy",
-      "name": "Pick Policy Memory",
+      "id": "DemoLLMPlan",
+      "name": "Demo LLM Plan",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse the controller plan\nlet plan;\ntry {\n  const planData = $node['DemoLLMPlan'].json;\n  if (typeof planData === 'string') {\n    plan = JSON.parse(planData);\n  } else {\n    plan = planData;\n  }\n} catch (e) {\n  console.log('Error parsing plan:', e.message);\n  plan = {\n    objective_weights: {\n      career_alignment: 0.40,\n      time_to_completion: 0.20,\n      workload_balance: 0.15,\n      cost: 0.15,\n      prereq_risk: 0.10\n    },\n    candidate_strategy: {\n      k_paths: parseInt($node['Config'].json.K_CANDIDATES || 3, 10)\n    }\n  };\n}\n\nreturn [{ json: plan }];"
+      },
+      "id": "ParsePlan",
+      "name": "Parse Controller Plan",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [900, 300]
     },
-
-    { "parameters": { "url": "={{$node['Config'].json.PROFILE_SOURCE_URL}}", "authentication": "none", "queryParametersUi": { "parameter": [ { "name": "student_id", "value": "={{$node['Normalize Input'].json.student_id}}" } ] }, "ignoreResponseCode": true }, "id": "FetchProfile", "name": "Fetch Student Profile", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
-    { "parameters": { "url": "={{$node['Config'].json.CAREERS_SOURCE_URL}}", "authentication": "none", "queryParametersUi": { "parameter": [ { "name": "q", "value": "={{$node['Normalize Input'].json.career_goal}}" } ] }, "ignoreResponseCode": true }, "id": "FetchCareers", "name": "Fetch Career Target", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
-    { "parameters": { "url": "={{$node['Config'].json.PROGRAMS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrograms", "name": "Fetch Programs", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
-    { "parameters": { "url": "={{$node['Config'].json.COURSES_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchCourses", "name": "Fetch Courses", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
-    { "parameters": { "url": "={{$node['Config'].json.PREREQS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrereqs", "name": "Fetch Prerequisites", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
-    { "parameters": { "url": "={{$node['Config'].json.SKILLSLEX_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSkillsLex", "name": "Fetch SkillsLex (optional)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-
     {
       "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "You are the LLM Controller for Project Jesse — Educational Pathways. Plan an autonomous run that: (1) defines multi-objective weights; (2) sets reinforcement-learning policy search params; (3) specifies candidate path generation constraints; (4) describes counterfactual exploration; (5) defines explainability outputs. Output JSON ONLY:\\n{\\n  \"objective_weights\": {\"career_alignment\":0.40,\"time_to_completion\":0.20,\"workload_balance\":0.15,\"cost\":0.15,\"prereq_risk\":0.10},\\n  \"constraints_defaults\": {\"max_terms\": {{$node['Normalize Input'].json.constraints.max_terms || 8}}, \"max_credits_per_term\": {{$node['Normalize Input'].json.constraints.max_credits_per_term || 15}}, \"modality\": \"any\"},\\n  \"rl\": {\"algorithm\":\"policy-search\",\"episodes\": 5, \"exploration\":\"epsilon-greedy\", \"epsilon\": 0.2},\\n  \"candidate_strategy\": {\"k_paths\": {{$node['Config'].json.K_CANDIDATES || 10}}, \"diversity\": true},\\n  \"counterfactual_policy\": {\"variants\": [\"swap_electives\",\"accelerate_core\",\"balance_workload\",\"lower_cost\"]},\\n  \"explainability\": {\"per_step\": true, \"global\": true}\\n}",
-        "messages": [
-          { "text": "Student: {{$node['Normalize Input'].json.student_id}} | Career goal: {{$node['Normalize Input'].json.career_goal}}\\nAptitudes: {{$node['Normalize Input'].json.aptitudes}}\\nPreferences: {{$node['Normalize Input'].json.preferences}}\\nPolicy memory (optional): {{$node['Pick Policy Memory'].json.policy_memory}}" }
-        ],
-        "options": { "temperature": 0.1 }
+        "content": "=[\n  {\n    \"id\": \"CS101\",\n    \"title\": \"Introduction to Computer Science\",\n    \"credits\": 3,\n    \"skills\": [\"Programming Fundamentals\", \"Problem Solving\", \"Algorithms\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"CS201\",\n    \"title\": \"Data Structures\",\n    \"credits\": 4,\n    \"skills\": [\"Data Structures\", \"Algorithm Analysis\", \"Programming\"],\n    \"modality\": \"any\",\n    \"cost\": 1600\n  },\n  {\n    \"id\": \"MATH201\",\n    \"title\": \"Linear Algebra\",\n    \"credits\": 3,\n    \"skills\": [\"Linear Algebra\", \"Mathematical Reasoning\", \"Matrix Operations\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"STAT301\",\n    \"title\": \"Introduction to Statistics\",\n    \"credits\": 3,\n    \"skills\": [\"Statistical Analysis\", \"Data Interpretation\", \"Probability\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"CS310\",\n    \"title\": \"Database Systems\",\n    \"credits\": 3,\n    \"skills\": [\"SQL\", \"Database Design\", \"Data Modeling\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"CS350\",\n    \"title\": \"Machine Learning\",\n    \"credits\": 4,\n    \"skills\": [\"Machine Learning\", \"Data Analysis\", \"Python\", \"Statistical Models\"],\n    \"modality\": \"any\",\n    \"cost\": 1600\n  },\n  {\n    \"id\": \"DS400\",\n    \"title\": \"Data Science Capstone\",\n    \"credits\": 4,\n    \"skills\": [\"Data Science\", \"Project Management\", \"Data Visualization\"],\n    \"modality\": \"any\",\n    \"cost\": 1600\n  },\n  {\n    \"id\": \"CS330\",\n    \"title\": \"Big Data Systems\",\n    \"credits\": 3,\n    \"skills\": [\"Big Data\", \"Distributed Computing\", \"Data Processing\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"MATH310\",\n    \"title\": \"Probability Theory\",\n    \"credits\": 3,\n    \"skills\": [\"Probability\", \"Statistical Theory\", \"Mathematical Modeling\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  },\n  {\n    \"id\": \"COMM200\",\n    \"title\": \"Technical Communication\",\n    \"credits\": 3,\n    \"skills\": [\"Technical Writing\", \"Communication\", \"Documentation\"],\n    \"modality\": \"any\",\n    \"cost\": 1200\n  }\n]",
+        "options": {}
       },
-      "id": "LLMPlan",
-      "name": "LLM Controller (Plan)",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
+      "id": "DemoCourses",
+      "name": "Demo Courses",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [700, 400]
     },
-
-    { "parameters": { "functionCode": "let plan; try{plan=JSON.parse(items[0].json.data||items[0].json||'{}')}catch{plan=items[0].json}; return [{json: plan}];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-
     {
       "parameters": {
-        "functionCode": "function arr(x){ if(!x) return []; if(Array.isArray(x)) return x; if(x.data){ try{return JSON.parse(x.data);}catch{} } return x.items||x.results||x.records||x; }\nconst courses = arr($node['Fetch Courses'].json).map(c=>({ id: c.id||c.code||c.title, title: c.title||c.name, credits: c.credits||parseInt($node['Config'].json.DEFAULT_CREDITS_PER_COURSE||3,10), skills: c.skills||c.learning_outcomes||[], modality: c.modality||'any', cost: c.cost_per_credit? (c.cost_per_credit*(c.credits||3)) : (c.cost||null) }));\nconst prereqsRaw = arr($node['Fetch Prerequisites'].json);\nconst prereqs = prereqsRaw.map(e=>({ from: e.prereq||e.from||e.req, to: e.course||e.to })).filter(e=>e.from && e.to);\nconst careers = arr($node['Fetch Career Target'].json);\nconst target = careers[0] || { title: $node['Normalize Input'].json.career_goal, required_skills: [] };\nconst required_skills = target.required_skills || target.skills || [];\n// Build graph indices\nconst idSet = new Set(courses.map(c=>c.id));\nconst edges = prereqs.filter(e=>idSet.has(e.from)&&idSet.has(e.to));\nconst indeg = {}; for(const c of courses){ indeg[c.id]=0; }\nfor(const e of edges){ indeg[e.to] = (indeg[e.to]||0)+1; }\nconst out = {}; for(const c of courses){ out[c.id]=[]; }\nfor(const e of edges){ out[e.to] = out[e.to]||[]; out[e.from] = out[e.from]||[]; out[e.from].push(e.to); }\nreturn [{ json: { courses, edges, indeg, out, target: { title: target.title, required_skills }, constraints: $node['Normalize Input'].json.constraints } }];"
+        "content": "=[\n  {\n    \"prereq\": \"CS101\",\n    \"to\": \"CS201\"\n  },\n  {\n    \"prereq\": \"CS201\",\n    \"to\": \"CS310\"\n  },\n  {\n    \"prereq\": \"CS201\",\n    \"to\": \"CS350\"\n  },\n  {\n    \"prereq\": \"STAT301\",\n    \"to\": \"CS350\"\n  },\n  {\n    \"prereq\": \"MATH201\",\n    \"to\": \"CS350\"\n  },\n  {\n    \"prereq\": \"MATH201\",\n    \"to\": \"MATH310\"\n  },\n  {\n    \"prereq\": \"CS310\",\n    \"to\": \"CS330\"\n  },\n  {\n    \"prereq\": \"CS310\",\n    \"to\": \"DS400\"\n  },\n  {\n    \"prereq\": \"CS350\",\n    \"to\": \"DS400\"\n  }\n]",
+        "options": {}
+      },
+      "id": "DemoPrereqs",
+      "name": "Demo Prerequisites",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [700, 500]
+    },
+    {
+      "parameters": {
+        "content": "={\n  \"title\": \"Data Scientist\",\n  \"required_skills\": [\n    \"Machine Learning\",\n    \"Statistical Analysis\",\n    \"Python\",\n    \"SQL\",\n    \"Data Visualization\",\n    \"Big Data\"\n  ]\n}",
+        "options": {}
+      },
+      "id": "DemoCareer",
+      "name": "Demo Career Target",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [700, 600]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process the course and prerequisite data to build a course graph\nlet courses = [];\ntry {\n  const coursesData = $node['DemoCourses'].json;\n  if (typeof coursesData === 'string') {\n    courses = JSON.parse(coursesData);\n  } else if (Array.isArray(coursesData)) {\n    courses = coursesData;\n  } else {\n    console.log('Unexpected courses data format');\n    courses = [];\n  }\n} catch (e) {\n  console.log('Error parsing courses:', e.message);\n  courses = [];\n}\n\n// Process prerequisites\nlet prereqsRaw = [];\ntry {\n  const prereqsData = $node['DemoPrereqs'].json;\n  if (typeof prereqsData === 'string') {\n    prereqsRaw = JSON.parse(prereqsData);\n  } else if (Array.isArray(prereqsData)) {\n    prereqsRaw = prereqsData;\n  } else {\n    console.log('Unexpected prereqs data format');\n    prereqsRaw = [];\n  }\n} catch (e) {\n  console.log('Error parsing prereqs:', e.message);\n  prereqsRaw = [];\n}\n\n// Process career target\nlet target = { title: $node['NormalizeInput'].json.career_goal, required_skills: [] };\ntry {\n  const careerData = $node['DemoCareer'].json;\n  if (typeof careerData === 'string') {\n    target = JSON.parse(careerData);\n  } else {\n    target = careerData;\n  }\n} catch (e) {\n  console.log('Error parsing career target:', e.message);\n}\n\n// Format prereqs\nconst prereqs = prereqsRaw.map(e => ({\n  from: e.prereq || e.from || e.req,\n  to: e.course || e.to\n})).filter(e => e.from && e.to);\n\n// Build graph indices\nconst idSet = new Set(courses.map(c => c.id));\nconst edges = prereqs.filter(e => idSet.has(e.from) && idSet.has(e.to));\n\n// Calculate in-degree for each course (number of prerequisites)\nconst indeg = {};\nfor (const c of courses) {\n  indeg[c.id] = 0;\n}\nfor (const e of edges) {\n  indeg[e.to] = (indeg[e.to] || 0) + 1;\n}\n\n// Build outgoing edges (what courses each course is a prerequisite for)\nconst out = {};\nfor (const c of courses) {\n  out[c.id] = [];\n}\nfor (const e of edges) {\n  out[e.to] = out[e.to] || [];\n  out[e.from] = out[e.from] || [];\n  out[e.from].push(e.to);\n}\n\n// Return the complete graph structure\nreturn [{\n  json: {\n    courses,\n    edges,\n    indeg,\n    out,\n    target: {\n      title: target.title,\n      required_skills: target.required_skills || []\n    },\n    constraints: $node['NormalizeInput'].json.constraints\n  }\n}];"
       },
       "id": "BuildGraph",
       "name": "Build Course Graph",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [1100, 300]
     },
-
     {
       "parameters": {
-        "functionCode": "const plan=$node['Parse Controller Plan'].json||{}; const k = parseInt(plan.candidate_strategy?.k_paths || $node['Config'].json.K_CANDIDATES || 10,10); const courses=$node['Build Course Graph'].json.courses; const indeg=JSON.parse(JSON.stringify($node['Build Course Graph'].json.indeg)); const out=$node['Build Course Graph'].json.out; const reqSkills=new Set(($node['Build Course Graph'].json.target.required_skills||[]).map(s=>String(s).toLowerCase())); const cons=$node['Build Course Graph'].json.constraints || {}; const maxTerms = cons.max_terms || parseInt($node['Config'].json.MAX_TERMS||8,10); const maxCPT = cons.max_credits_per_term || parseInt($node['Config'].json.MAX_CREDITS_PER_TERM||15,10);\n// index courses by id\nconst byId = {}; for(const c of courses){ byId[c.id]=c; }\n// skill weight heuristic\nfunction skillScore(c){ const s=(c.skills||[]).map(x=>String(x).toLowerCase()); let m=0; for(const t of s){ if(reqSkills.has(t)) m++; } return m + 0.1; }\n// initial available (no prereqs)\nlet avail = courses.filter(c=> (indeg[c.id]||0)===0 ).sort((a,b)=>skillScore(b)-skillScore(a));\nconst used = new Set(); const candidates=[];\nfor(let kidx=0;kidx<k && avail.length>0; kidx++){\n  const planTerms=[]; const localUsed=new Set(); const indegK=JSON.parse(JSON.stringify(indeg)); let pool=avail.slice(); let terms=0;\n  while(terms<maxTerms){ let credits=0; const term=[]; // greedy pick\n    pool.sort((a,b)=>skillScore(b)-skillScore(a));\n    for(const c of pool){ if(localUsed.has(c.id)) continue; if(credits + (c.credits||3) > maxCPT) continue; term.push(c.id); credits += (c.credits||3); localUsed.add(c.id); }\n    if(term.length===0) break; planTerms.push({ term: terms+1, courses: term });\n    // update indegrees\n    for(const cid of term){ for(const to of (out[cid]||[])){ indegK[to] = Math.max(0,(indegK[to]||0)-1); } }\n    // new pool: all with indeg 0 and not used\n    pool = courses.filter(c=> (indegK[c.id]||0)===0 && !localUsed.has(c.id));\n    terms++;\n  }\n  if(planTerms.length>0){ candidates.push({ id: 'cand_'+(kidx+1), sequence: planTerms }); }\n}\nreturn candidates.map(c=>({ json: c }));"
+        "functionCode": "// Generate candidate course paths\nconst plan = $node['ParsePlan'].json || {};\nconst k = parseInt(plan.candidate_strategy?.k_paths || $node['Config'].json.K_CANDIDATES || 3, 10);\nconst courses = $node['BuildGraph'].json.courses;\nconst indeg = JSON.parse(JSON.stringify($node['BuildGraph'].json.indeg));\nconst out = $node['BuildGraph'].json.out;\n\n// Create a set of required skills from career target\nconst reqSkills = new Set(($node['BuildGraph'].json.target.required_skills || []).map(s => String(s).toLowerCase()));\n\n// Get constraints\nconst cons = $node['BuildGraph'].json.constraints || {};\nconst maxTerms = cons.max_terms || parseInt($node['Config'].json.MAX_TERMS || 8, 10);\nconst maxCPT = cons.max_credits_per_term || parseInt($node['Config'].json.MAX_CREDITS_PER_TERM || 15, 10);\n\n// Index courses by ID for easy lookup\nconst byId = {};\nfor (const c of courses) {\n  byId[c.id] = c;\n}\n\n// Function to score courses based on skill relevance to career target\nfunction skillScore(c) {\n  const s = (c.skills || []).map(x => String(x).toLowerCase());\n  let m = 0;\n  for (const t of s) {\n    if (reqSkills.has(t)) m++;\n  }\n  return m + 0.1; // Add small constant to avoid zero scores\n}\n\n// Find initially available courses (no prerequisites)\nlet avail = courses.filter(c => (indeg[c.id] || 0) === 0).sort((a, b) => skillScore(b) - skillScore(a));\n\n// Generate K candidate paths\nconst candidates = [];\nfor (let kidx = 0; kidx < k && avail.length > 0; kidx++) {\n  const planTerms = [];\n  const localUsed = new Set();\n  const indegK = JSON.parse(JSON.stringify(indeg));\n  let pool = avail.slice();\n  let terms = 0;\n\n  // Create a sequence of terms\n  while (terms < maxTerms && pool.length > 0) {\n    let credits = 0;\n    const term = [];\n\n    // Sort available courses by skill relevance\n    pool.sort((a, b) => skillScore(b) - skillScore(a));\n\n    // Greedily pick courses for this term\n    for (const c of pool) {\n      if (localUsed.has(c.id)) continue;\n      if (credits + (c.credits || 3) > maxCPT) continue;\n      term.push(c.id);\n      credits += (c.credits || 3);\n      localUsed.add(c.id);\n    }\n\n    // If no courses were added, we're done\n    if (term.length === 0) break;\n\n    // Add this term to the plan\n    planTerms.push({\n      term: terms + 1,\n      courses: term\n    });\n\n    // Update in-degrees for prerequisites\n    for (const cid of term) {\n      for (const to of (out[cid] || [])) {\n        indegK[to] = Math.max(0, (indegK[to] || 0) - 1);\n      }\n    }\n\n    // Update pool of available courses for next term\n    pool = courses.filter(c => (indegK[c.id] || 0) === 0 && !localUsed.has(c.id));\n    terms++;\n  }\n\n  // Add this candidate path if it has at least one term\n  if (planTerms.length > 0) {\n    candidates.push({\n      id: 'cand_' + (kidx + 1),\n      sequence: planTerms\n    });\n  }\n}\n\n// Prepare result with candidates\nreturn candidates.map(c => ({ json: c }));"
       },
       "id": "GenerateCandidates",
       "name": "Generate Candidate Paths",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [1300, 300]
     },
-
-    { "parameters": { "batchSize": 1 }, "id": "SplitCandidates", "name": "Split Candidates", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
-
     {
       "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "Score a course sequence via multi-objective evaluation. Consider: career skill alignment, time-to-completion, workload balance per term, estimated cost, and prerequisite risk. Output STRICT JSON: {\"scores\": {\"career_alignment\":0..1, \"time_to_completion\":0..1, \"workload_balance\":0..1, \"cost\":0..1, \"prereq_risk\":0..1}, \"rationale\": [], \"soft_confidence\": 0..1 } (higher is better; cost is inverted affordability).",
-        "messages": [
-          {
-            "text": "Objective weights: {{$node['Parse Controller Plan'].json.objective_weights}}\\nConstraints: {{$node['Build Course Graph'].json.constraints}}\\nCareer target: {{$node['Build Course Graph'].json.target}}\\nSequence: {{$json}}\\nAptitudes: {{$node['Normalize Input'].json.aptitudes}}\\nPreferences: {{$node['Normalize Input'].json.preferences}}\\nCourse catalog (subset): {{ ($node['Fetch Courses'].json.items || $node['Fetch Courses'].json.results || $node['Fetch Courses'].json).slice ? ($node['Fetch Courses'].json.items || $node['Fetch Courses'].json.results || []).slice(0,200) : $node['Fetch Courses'].json }}"
-          }
-        ],
-        "options": { "temperature": 0.1 }
+        "batchSize": 1
       },
-      "id": "LLMScore",
-      "name": "LLM Score Candidate",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
+      "id": "SplitCandidates",
+      "name": "Split Candidates",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [1500, 300]
     },
-
     {
       "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "Propose counterfactual variants of the given sequence (swap electives, re-order to reduce risk/cost, accelerate core, balance workload). Output STRICT JSON: {\"alternatives\": [{\"label\":\"\",\"change\":\"\",\"expected_effect\":\"\",\"sequence\": [{\"term\":1,\"courses\":[\"\"]}] }], \"notes\": [] }",
-        "messages": [
-          {
-            "text": "Counterfactual policy: {{$node['Parse Controller Plan'].json.counterfactual_policy}}\\nOriginal sequence: {{$node['Split Candidates'].json}}\\nCareer target: {{$node['Build Course Graph'].json.target}}\\nConstraints: {{$node['Build Course Graph'].json.constraints}}"
-          }
-        ],
-        "options": { "temperature": 0.15 }
+        "content": "={\n  \"scores\": {\n    \"career_alignment\": 0.85,\n    \"time_to_completion\": 0.72,\n    \"workload_balance\": 0.68,\n    \"cost\": 0.64,\n    \"prereq_risk\": 0.78\n  },\n  \"rationale\": [\n    \"Strong career alignment with data science skills like machine learning and statistics\",\n    \"Good time to completion with 4 terms\",\n    \"Some terms have heavier workload than others\",\n    \"Cost is moderate but within typical range\",\n    \"Low prerequisite risk with logical course sequencing\"\n  ],\n  \"soft_confidence\": 0.82\n}",
+        "options": {}
       },
-      "id": "LLMCounterfactual",
-      "name": "LLM Counterfactuals",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
+      "id": "DemoLLMScore",
+      "name": "Demo Score Candidate",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [1700, 200]
     },
-
     {
       "parameters": {
-        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}} const sc=safe($node['LLM Score Candidate'].json)||{}; const alts=safe($node['LLM Counterfactuals'].json)||{}; const w=$node['Parse Controller Plan'].json.objective_weights || {career_alignment:0.4,time_to_completion:0.2,workload_balance:0.15,cost:0.15,prereq_risk:0.10}; const s=sc.scores||{}; const objective=(w.career_alignment*(s.career_alignment||0))+(w.time_to_completion*(s.time_to_completion||0))+(w.workload_balance*(s.workload_balance||0))+(w.cost*(s.cost||0))+(w.prereq_risk*(s.prereq_risk||0)); const threshold=parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD||0.70); const soft=(Number(sc.soft_confidence||0)); const accepted = objective>=0.6 && soft>=threshold; const record={ session_id: $node['Normalize Input'].json.session_id, student_id: $node['Normalize Input'].json.student_id, career_goal: $node['Normalize Input'].json.career_goal, candidate_id: $node['Split Candidates'].json.id, sequence: $node['Split Candidates'].json.sequence, scores: s, objective_score: Number(objective.toFixed(4)), soft_confidence: Number(soft.toFixed(3)), rationale: sc.rationale||[], alternatives: alts.alternatives||[], constraints: $node['Build Course Graph'].json.constraints, weights: w, accepted, run_ts: new Date().toISOString() }; return [{ json: { record } }];"
+        "content": "={\n  \"alternatives\": [\n    {\n      \"label\": \"Balance Workload\",\n      \"change\": \"Move CS330 from term 3 to term 4\",\n      \"expected_effect\": \"Improves workload balance by +0.12\",\n      \"sequence\": [\n        {\n          \"term\": 1,\n          \"courses\": [\"CS101\", \"STAT301\", \"MATH201\", \"COMM200\"]\n        },\n        {\n          \"term\": 2,\n          \"courses\": [\"CS201\", \"MATH310\"]\n        },\n        {\n          \"term\": 3,\n          \"courses\": [\"CS310\", \"CS350\"]\n        },\n        {\n          \"term\": 4,\n          \"courses\": [\"CS330\", \"DS400\"]\n        }\n      ]\n    },\n    {\n      \"label\": \"Lower Cost\",\n      \"change\": \"Replace MATH310 with free online alternative\",\n      \"expected_effect\": \"Reduces total cost by $1200\",\n      \"sequence\": [\n        {\n          \"term\": 1,\n          \"courses\": [\"CS101\", \"STAT301\", \"MATH201\", \"COMM200\"]\n        },\n        {\n          \"term\": 2,\n          \"courses\": [\"CS201\"]\n        },\n        {\n          \"term\": 3,\n          \"courses\": [\"CS310\", \"CS350\", \"CS330\"]\n        },\n        {\n          \"term\": 4,\n          \"courses\": [\"DS400\"]\n        }\n      ]\n    }\n  ],\n  \"notes\": [\n    \"Both alternatives maintain career alignment\",\n    \"Cost reduction alternative may require additional self-study\"\n  ]\n}",
+        "options": {}
+      },
+      "id": "DemoLLMCounterfactual",
+      "name": "Demo Counterfactuals",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse scores and counterfactuals\nlet sc = {};\ntry {\n  const scoreData = $node['DemoLLMScore'].json;\n  if (typeof scoreData === 'string') {\n    sc = JSON.parse(scoreData);\n  } else {\n    sc = scoreData;\n  }\n} catch (e) {\n  console.log('Error parsing score:', e.message);\n  sc = {\n    scores: {\n      career_alignment: 0.7,\n      time_to_completion: 0.7,\n      workload_balance: 0.7,\n      cost: 0.7,\n      prereq_risk: 0.7\n    },\n    rationale: ['Fallback rationale due to parsing error'],\n    soft_confidence: 0.7\n  };\n}\n\nlet alts = {};\ntry {\n  const altsData = $node['DemoLLMCounterfactual'].json;\n  if (typeof altsData === 'string') {\n    alts = JSON.parse(altsData);\n  } else {\n    alts = altsData;\n  }\n} catch (e) {\n  console.log('Error parsing counterfactuals:', e.message);\n  alts = { alternatives: [], notes: [] };\n}\n\n// Get weights from plan\nconst w = $node['ParsePlan'].json.objective_weights || {\n  career_alignment: 0.4,\n  time_to_completion: 0.2,\n  workload_balance: 0.15,\n  cost: 0.15,\n  prereq_risk: 0.10\n};\n\n// Extract scores\nconst s = sc.scores || {};\n\n// Calculate overall objective score\nconst objective = (\n  (w.career_alignment * (s.career_alignment || 0)) +\n  (w.time_to_completion * (s.time_to_completion || 0)) +\n  (w.workload_balance * (s.workload_balance || 0)) +\n  (w.cost * (s.cost || 0)) +\n  (w.prereq_risk * (s.prereq_risk || 0))\n);\n\n// Check confidence threshold\nconst threshold = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.70);\nconst soft = Number(sc.soft_confidence || 0);\nconst accepted = objective >= 0.6 && soft >= threshold;\n\n// Build the complete record\nconst record = {\n  session_id: $node['NormalizeInput'].json.session_id,\n  student_id: $node['NormalizeInput'].json.student_id,\n  career_goal: $node['NormalizeInput'].json.career_goal,\n  candidate_id: $node['SplitCandidates'].json.id,\n  sequence: $node['SplitCandidates'].json.sequence,\n  scores: s,\n  objective_score: Number(objective.toFixed(4)),\n  soft_confidence: Number(soft.toFixed(3)),\n  rationale: sc.rationale || [],\n  alternatives: alts.alternatives || [],\n  constraints: $node['BuildGraph'].json.constraints,\n  weights: w,\n  accepted,\n  run_ts: new Date().toISOString()\n};\n\nreturn [{ json: { record } }];"
       },
       "id": "BuildRecord",
       "name": "Build JSON Record",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [1900, 300]
     },
-
     {
       "parameters": {
-        "operation": "create",
-        "fields": {
-          "fieldsUi": {
-            "field": [
-              { "fieldName": "path_record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
-              { "fieldName": "session_id", "fieldType": "string", "fieldValue": "={{$json['record'].session_id}}" },
-              { "fieldName": "student_id", "fieldType": "string", "fieldValue": "={{$json['record'].student_id}}" },
-              { "fieldName": "candidate_id", "fieldType": "string", "fieldValue": "={{$json['record'].candidate_id}}" },
-              { "fieldName": "objective_score", "fieldType": "number", "fieldValue": "={{$json['record'].objective_score}}" },
-              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
-              { "fieldName": "accepted", "fieldType": "boolean", "fieldValue": "={{$json['record'].accepted}}" },
-              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
-            ]
-          }
-        }
-      },
-      "id": "SaveDataStore",
-      "name": "Save to Data Store (JSON)",
-      "type": "n8n-nodes-base.dataStore",
-      "typeVersion": 1
-    },
-
-    {
-      "parameters": {
-        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
-        "jsonParameters": true,
-        "sendBody": true,
-        "specifyBody": "json",
-        "bodyParametersJson": "={{$json['record']}}",
-        "ignoreResponseCode": true,
-        "authentication": "none",
+        "path": "=/jesse/pathways/{{$json.record.student_id}}_{{$json.record.candidate_id}}.json",
         "options": {}
       },
-      "id": "PostJSON",
-      "name": "POST to JSON Sink (Optional)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4
-    },
-
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "send",
-        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
-        "message": "Pathways {{ $json['record'].accepted ? '✅ ACCEPT' : 'ℹ️ candidate' }} | Student: {{ $json['record'].student_id }} | Goal: {{ $json['record'].career_goal }}\\nCandidate: {{ $json['record'].candidate_id }} | Score: {{ $json['record'].objective_score }} | Conf: {{ $json['record'].soft_confidence }}\\nFirst term: {{ ($json['record'].sequence[0] && $json['record'].sequence[0].courses || []).join(', ') }}\\n(Informational only; pipeline continues automatically.)"
-      },
-      "id": "DiscordNotify",
-      "name": "Discord: Notify per Candidate",
-      "type": "n8n-nodes-base.discord",
+      "id": "WriteFile",
+      "name": "Write Result to File",
+      "type": "n8n-nodes-base.writeBinaryFile",
       "typeVersion": 1,
-      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+      "position": [2100, 200]
     },
-
-    { "parameters": {}, "id": "NextCandidate", "name": "Next Candidate", "type": "n8n-nodes-base.noOp", "typeVersion": 1 },
-
-    /* ------- Optional RL feedback loop (non-blocking) ------- */
-
     {
       "parameters": {
-        "path": "={{$node['Config'].json.FEEDBACK_WEBHOOK_PATH}}",
-        "options": { "responseData": "received", "responseCode": 200 }
-      },
-      "id": "FeedbackWebhook",
-      "name": "Webhook: Receive Pathways Feedback (optional)",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1
-    },
-
-    {
-      "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "Update policy memory from human feedback (reward/penalty) and recent candidates. Output STRICT JSON: {\"updated_weights\":{}, \"epsilon\":0..1, \"notes\":[] }",
-        "messages": [
-          {
-            "text": "Current policy memory: {{$node['Pick Policy Memory'].json.policy_memory}}\\nFeedback payload: {{$json}}"
-          }
-        ],
-        "options": { "temperature": 0.1 }
-      },
-      "id": "LLMUpdatePolicy",
-      "name": "LLM: Update Policy",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
-    },
-
-    {
-      "parameters": {
-        "operation": "create",
-        "fields": {
-          "fieldsUi": {
-            "field": [
-              { "fieldName": "policy_memory", "fieldType": "string", "fieldValue": "={{JSON.stringify($json)}}" },
-              { "fieldName": "updated_ts", "fieldType": "string", "fieldValue": "={{new Date().toISOString()}}" }
-            ]
-          }
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+              "operation": "isNotEmpty"
+            }
+          ]
         }
       },
-      "id": "SavePolicy",
-      "name": "Save Policy Memory",
-      "type": "n8n-nodes-base.dataStore",
-      "typeVersion": 1
+      "id": "CheckDiscordConfig",
+      "name": "Check if Discord is Configured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2100, 300]
     },
-
     {
       "parameters": {
         "resource": "message",
         "operation": "send",
         "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
-        "message": "Pathways feedback ingested. Policy memory updated."
+        "message": "Pathways {{ $json.record.accepted ? '✅ ACCEPT' : 'ℹ️ CANDIDATE' }} | Student: {{ $json.record.student_id }} | Goal: {{ $json.record.career_goal }}\nCandidate: {{ $json.record.candidate_id }} | Score: {{ $json.record.objective_score.toFixed(2) }} | Conf: {{ $json.record.soft_confidence.toFixed(2) }}\nFirst term: {{ ($json.record.sequence[0]?.courses || []).join(', ') }}"
       },
-      "id": "DiscordAck",
-      "name": "Discord: Feedback Ack",
+      "id": "DiscordNotify",
+      "name": "Discord: Notify",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 1,
-      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+      "position": [2300, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node['SplitCandidates'].context.currentRunIndex}}",
+              "operation": "smaller",
+              "value2": "={{parseInt($node['ParsePlan'].json.candidate_strategy?.k_paths || $node['Config'].json.K_CANDIDATES || 3) - 1}}"
+            }
+          ]
+        }
+      },
+      "id": "CheckMoreCandidates",
+      "name": "Check for More Candidates",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2100, 400]
+    },
+    {
+      "parameters": {},
+      "id": "NextCandidate",
+      "name": "Next Candidate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2300, 400]
+    },
+    {
+      "parameters": {},
+      "id": "WorkflowDone",
+      "name": "Workflow Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2300, 500]
     }
   ],
   "connections": {
-    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
-    "Webhook: Receive Pathways Request": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
-
-    "Config": { "main": [ [ { "node": "Normalize Input", "type": "main", "index": 0 } ] ] },
-
-    "Normalize Input": { "main": [ [ { "node": "Load Policy Memory (optional)", "type": "main", "index": 0 } ] ] },
-
-    "Load Policy Memory (optional)": { "main": [ [ { "node": "Pick Policy Memory", "type": "main", "index": 0 } ] ] },
-
-    "Pick Policy Memory": { "main": [ [ { "node": "Fetch Student Profile", "type": "main", "index": 0 } ] ] },
-
-    "Fetch Student Profile": { "main": [ [ { "node": "Fetch Career Target", "type": "main", "index": 0 } ] ] },
-
-    "Fetch Career Target": { "main": [ [ { "node": "Fetch Programs", "type": "main", "index": 0 } ] ] },
-
-    "Fetch Programs": { "main": [ [ { "node": "Fetch Courses", "type": "main", "index": 0 } ] ] },
-
-    "Fetch Courses": { "main": [ [ { "node": "Fetch Prerequisites", "type": "main", "index": 0 } ] ] },
-
-    "Fetch Prerequisites": { "main": [ [ { "node": "Fetch SkillsLex (optional)", "type": "main", "index": 0 } ] ] },
-
-    "Fetch SkillsLex (optional)": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
-
-    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
-
-    "Parse Controller Plan": { "main": [ [ { "node": "Build Course Graph", "type": "main", "index": 0 } ] ] },
-
-    "Build Course Graph": { "main": [ [ { "node": "Generate Candidate Paths", "type": "main", "index": 0 } ] ] },
-
-    "Generate Candidate Paths": { "main": [ [ { "node": "Split Candidates", "type": "main", "index": 0 } ] ] },
-
-    "Split Candidates": { "main": [ [ { "node": "LLM Score Candidate", "type": "main", "index": 0 } ] ] },
-
-    "LLM Score Candidate": { "main": [ [ { "node": "LLM Counterfactuals", "type": "main", "index": 0 } ] ] },
-
-    "LLM Counterfactuals": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
-
-    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Candidate", "type": "main", "index": 0 }, { "node": "Next Candidate", "type": "main", "index": 0 } ] ] },
-
-    "Next Candidate": { "main": [ [ { "node": "Split Candidates", "type": "main", "index": 0 } ] ] },
-
-    "Webhook: Receive Pathways Feedback (optional)": { "main": [ [ { "node": "LLM: Update Policy", "type": "main", "index": 0 } ] ] },
-
-    "LLM: Update Policy": { "main": [ [ { "node": "Save Policy Memory", "type": "main", "index": 0 }, { "node": "Discord: Feedback Ack", "type": "main", "index": 0 } ] ] }
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "DemoInput",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DemoPolicyMemory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DemoCourses",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DemoPrereqs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DemoCareer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoInput": {
+      "main": [
+        [
+          {
+            "node": "NormalizeInput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NormalizeInput": {
+      "main": [
+        [
+          {
+            "node": "DemoLLMPlan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoLLMPlan": {
+      "main": [
+        [
+          {
+            "node": "ParsePlan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ParsePlan": {
+      "main": [
+        [
+          {
+            "node": "BuildGraph",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildGraph": {
+      "main": [
+        [
+          {
+            "node": "GenerateCandidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GenerateCandidates": {
+      "main": [
+        [
+          {
+            "node": "SplitCandidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitCandidates": {
+      "main": [
+        [
+          {
+            "node": "DemoLLMScore",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DemoLLMCounterfactual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoLLMScore": {
+      "main": [
+        [
+          {
+            "node": "BuildRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoLLMCounterfactual": {
+      "main": [
+        [
+          {
+            "node": "BuildRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildRecord": {
+      "main": [
+        [
+          {
+            "node": "WriteFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CheckDiscordConfig",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CheckMoreCandidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckDiscordConfig": {
+      "main": [
+        [
+          {
+            "node": "DiscordNotify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "CheckMoreCandidates": {
+      "main": [
+        [
+          {
+            "node": "NextCandidate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WorkflowDone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextCandidate": {
+      "main": [
+        [
+          {
+            "node": "SplitCandidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1",
   "meta": {
-    "workflowVersion": "1.0",
-    "description": "Autonomous Educational Pathways agent: RL-style course sequence search, multi-objective optimization, counterfactual alternatives, personalized to aptitudes/preferences, Discord FYIs, and JSON artifacts."
+    "instanceId": "demo-instance",
+    "description": "Simplified educational pathways agent with static demo data to help students learn the workflow structure."
   }
 }

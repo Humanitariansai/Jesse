@@ -1,19 +1,23 @@
 {
-  "_comment": "Jesse — AI_Job_Posting_Harvester.json",
-  "name": "Jesse — AI Job Posting Harvester (Autonomous, Discord, JSON)",
+  "name": "Jesse — AI Job Posting Harvester (Simplified)",
   "nodes": [
-    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+    {
+      "parameters": {},
+      "id": "Start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
     {
       "parameters": {
         "values": {
           "string": [
-            { "name": "SEED_QUERIES", "value": "site:lever.co engineer; site:greenhouse.io data scientist; site:workday.com product manager; site:jobs.lever.co ai research; site:boards.greenhouse.io machine learning" },
+            { "name": "SEED_QUERIES", "value": "site:lever.co engineer; site:greenhouse.io data scientist" },
             { "name": "REGION", "value": "United States" },
             { "name": "LANGUAGE", "value": "en" },
             { "name": "CONFIDENCE_THRESHOLD", "value": "0.72" },
-            { "name": "MAX_NEW_SOURCES", "value": "15" },
-            { "name": "SEARCH_API_BASE", "value": "https://api.example.com/search" },
-            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "MAX_NEW_SOURCES", "value": "3" },
             { "name": "DISCORD_CHANNEL_ID", "value": "" }
           ]
         }
@@ -21,154 +25,482 @@
       "id": "Config",
       "name": "Config",
       "type": "n8n-nodes-base.set",
-      "typeVersion": 2
+      "typeVersion": 2,
+      "position": [300, 300]
     },
     {
       "parameters": {
-        "operation": "getAll",
-        "dataMode": "autoMapInputData",
-        "schema": { "schemaType": "define", "fields": [ { "fieldName": "controller_prompt", "type": "string" } ] }
-      },
-      "id": "LoadPrompt",
-      "name": "Load Controller Prompt",
-      "type": "n8n-nodes-base.dataStore",
-      "typeVersion": 1
-    },
-    {
-      "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "You are the LLM Controller for the Project Jesse Job Posting Harvester. Goals: (1) autonomously discover new high-quality job sources (self-supervised exploration), (2) plan crawl targets, (3) adapt extraction instructions to novel page formats (few-shot transfer), (4) quantify uncertainty for active learning (non-blocking). Tools via downstream nodes: WEB_SEARCH(query)->results, FETCH(url)->html, PARSE(html)->structured_posting, SAVE(record_json), REPORT(discord_message). Given seeds and any stored prompt, output a JSON plan ONLY:\\n{\\n  \"search_queries\": [\"...\"],\\n  \"crawl_budget\": 50,\\n  \"priority_rules\": [\"prefer postings with skills blocks\", \"prefer recent < 30 days\"],\\n  \"extraction_instructions\": {\\n     \"fields\": [\"title\",\"company\",\"location\",\"posted_date\",\"employment_type\",\"description\",\"requirements\",\"skills\"],\\n     \"format\": \"json\",\\n     \"few_shots\": [\\n       {\"html_excerpt\":\"<div class=\\\"job\\\">Skills: Python, SQL, AWS</div>\",\"output\":{\"skills\":[\"Python\",\"SQL\",\"AWS\"]}},\\n       {\"html_excerpt\":\"<ul><li>Proficiency in TensorFlow or PyTorch</li></ul>\",\"output\":{\"skills\":[\"TensorFlow\",\"PyTorch\"]}}\\n     ]\\n  },\\n  \"uncertainty_policy\": {\\n    \"metric\":\"soft_confidence\",\\n    \"threshold\": {{$json[\"CONFIDENCE_THRESHOLD\"] || 0.72}},\\n    \"retry_max\": 1,\\n    \"on_low_confidence\": \"save_anyway_and_notify\"\\n  }\\n}",
-        "messages": [
-          {
-            "text": "Seeds: {{$node[\"Config\"].json.SEED_QUERIES}}\\nRegion: {{$node[\"Config\"].json.REGION}} | Language: {{$node[\"Config\"].json.LANGUAGE}}\\nIf a stored prompt exists above, incorporate it; otherwise synthesize from Goals."
-          }
-        ],
-        "options": { "temperature": 0.1 }
-      },
-      "id": "LLMPlan",
-      "name": "LLM Controller (Plan)",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
-    },
-    { "parameters": { "functionCode": "let plan; try { plan = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { plan = items[0].json; } return [{ json: plan }];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    { "parameters": { "functionCode": "const qs = Array.isArray(items[0].json.search_queries) ? items[0].json.search_queries : []; const max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 15, 10); return qs.slice(0, max).map(q => ({ json: { query: q } }));" }, "id": "SplitQueries", "name": "Split Search Queries", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    {
-      "parameters": {
-        "url": "={{$node[\"Config\"].json.SEARCH_API_BASE}}",
-        "queryParametersUi": { "parameter": [ { "name": "q", "value": "={{$json[\"query\"]}}" }, { "name": "hl", "value": "={{$node[\"Config\"].json.LANGUAGE}}" }, { "name": "gl", "value": "={{$node[\"Config\"].json.REGION}}" }, { "name": "count", "value": "10" } ] },
-        "jsonParameters": false,
-        "options": {},
-        "authentication": "none"
-      },
-      "id": "SearchHTTP",
-      "name": "Web Search (HTTP)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4
-    },
-    { "parameters": { "functionCode": "const d = items[0].json || {}; const arr = (d.results || d.items || []).map(r => r.link || r.url).filter(Boolean); return arr.map(u => ({ json: { url: u } }));" }, "id": "ExtractURLs", "name": "Extract Result URLs", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    { "parameters": { "batchSize": 1 }, "id": "SplitURLs", "name": "Split URLs", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
-    { "parameters": { "url": "={{$json[\"url\"]}}", "responseFormat": "string", "ignoreResponseCode": true }, "id": "FetchPage", "name": "Fetch Page (HTTP)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
-    {
-      "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "Neural document understanding parser for job postings. Extract strictly JSON: { \"title\",\"company\",\"location\",\"posted_date\",\"employment_type\",\"description\",\"requirements\":[],\"skills\":[],\"source_url\",\"soft_confidence\":0..1,\"needs_review\":false,\"reasons\":[] }",
-        "messages": [ { "text": "Extraction instructions:\\n{{$node[\"ParsePlan\"].json.extraction_instructions}}\\n\\nHTML:\\n{{$node[\"FetchPage\"].json}}\\n\\nSource URL: {{$json[\"url\"]}}" } ],
-        "options": { "temperature": 0.1 }
-      },
-      "id": "LLMParserA1",
-      "name": "LLM Parser A1",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
-    },
-    { "parameters": { "functionCode": "let p; try { p = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { p = items[0].json; } if (!p) p = {}; const th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72); const ok = (p.soft_confidence ?? 0) >= th && Array.isArray(p.skills) && p.skills.length>0 && p.title && p.company; return [{ json: { parsed: p, isConfident: ok, threshold: th, url: p.source_url || $node['FetchPage'].json.request?.url || $json.url } }];" }, "id": "AssessA1", "name": "Assess A1", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    { "parameters": { "conditions": { "boolean": [ { "value1": "={{$json[\"isConfident\"]}}", "operation": "isTrue" } ] } }, "id": "IF_A1", "name": "IF Confident A1", "type": "n8n-nodes-base.if", "typeVersion": 1 },
-    {
-      "parameters": {
-        "mode": "chat",
-        "model": "gpt-4o-mini",
-        "systemMessage": "Retry parser with stronger heuristics for unstructured HTML. Infer missing fields. Extract strictly the same JSON schema.",
-        "messages": [ { "text": "Extraction instructions (robust):\\n{{$node[\"ParsePlan\"].json.extraction_instructions}}\\n\\nHTML:\\n{{$node[\"FetchPage\"].json}}\\n\\nSource URL: {{$json[\"url\"]}}" } ],
-        "options": { "temperature": 0.1 }
-      },
-      "id": "LLMParserA2",
-      "name": "LLM Parser A2",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 5
-    },
-    { "parameters": { "functionCode": "let p; try { p = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { p = items[0].json; } if (!p) p = {}; const th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72); const ok = (p.soft_confidence ?? 0) >= th && Array.isArray(p.skills) && p.skills.length>0 && p.title && p.company; if (!ok) { p.needs_review = true; p.reasons = Array.isArray(p.reasons) ? p.reasons : []; p.reasons.push('low-confidence'); } return [{ json: { parsed: p, isConfident: ok, threshold: th } }];" }, "id": "AssessA2", "name": "Assess A2", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    { "parameters": { "functionCode": "const p = $json.parsed || {}; const now = new Date().toISOString(); const record = { title: p.title || null, company: p.company || null, location: p.location || null, posted_date: p.posted_date || null, employment_type: p.employment_type || null, description: p.description || null, requirements: p.requirements || [], skills: p.skills || [], source_url: p.source_url || $node['FetchPage'].json.request?.url || null, soft_confidence: p.soft_confidence ?? 0, needs_review: !!p.needs_review, reasons: p.reasons || [], harvest_run_ts: now }; return [{ json: { record } }];" }, "id": "BuildRecord", "name": "Build JSON Record", "type": "n8n-nodes-base.code", "typeVersion": 2 },
-    {
-      "parameters": {
-        "operation": "create",
-        "fields": {
-          "fieldsUi": {
-            "field": [
-              { "fieldName": "record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json[\"record\"])}}" },
-              { "fieldName": "source_url", "fieldType": "string", "fieldValue": "={{$json[\"record\"].source_url || \"\"}}" },
-              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json[\"record\"].soft_confidence}}" },
-              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json[\"record\"].needs_review}}" },
-              { "fieldName": "harvest_run_ts", "fieldType": "string", "fieldValue": "={{$json[\"record\"].harvest_run_ts}}" }
-            ]
-          }
-        }
-      },
-      "id": "SaveDataStore",
-      "name": "Save to Data Store (JSON)",
-      "type": "n8n-nodes-base.dataStore",
-      "typeVersion": 1
-    },
-    {
-      "parameters": {
-        "url": "={{$node[\"Config\"].json.JSON_SINK_URL}}",
-        "jsonParameters": true,
-        "sendBody": true,
-        "specifyBody": "json",
-        "bodyParametersJson": "={{$json[\"record\"]}}",
-        "ignoreResponseCode": true,
-        "authentication": "none",
+        "content": "={\n  \"search_queries\": [\n    \"site:lever.co machine learning engineer\",\n    \"site:greenhouse.io data scientist\",\n    \"site:workday.com product manager\"\n  ],\n  \"crawl_budget\": 20,\n  \"priority_rules\": [\n    \"prefer postings with skills blocks\",\n    \"prefer recent < 30 days\"\n  ],\n  \"extraction_instructions\": {\n    \"fields\": [\n      \"title\",\n      \"company\",\n      \"location\",\n      \"posted_date\",\n      \"employment_type\",\n      \"description\",\n      \"requirements\",\n      \"skills\"\n    ],\n    \"format\": \"json\",\n    \"few_shots\": [\n      {\n        \"html_excerpt\": \"<div class=\\\"job\\\">Skills: Python, SQL, AWS</div>\",\n        \"output\": {\"skills\": [\"Python\", \"SQL\", \"AWS\"]}\n      },\n      {\n        \"html_excerpt\": \"<ul><li>Proficiency in TensorFlow or PyTorch</li></ul>\",\n        \"output\": {\"skills\": [\"TensorFlow\", \"PyTorch\"]}\n      }\n    ]\n  },\n  \"uncertainty_policy\": {\n    \"metric\": \"soft_confidence\",\n    \"threshold\": {{$node[\"Config\"].json.CONFIDENCE_THRESHOLD || 0.72}},\n    \"retry_max\": 1,\n    \"on_low_confidence\": \"save_anyway_and_notify\"\n  }\n}",
         "options": {}
       },
-      "id": "PostJSON",
-      "name": "POST to JSON Sink (Optional)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4
+      "id": "DemoPlan",
+      "name": "Demo LLM Plan",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse the plan from the text template\nlet plan;\ntry {\n  const planData = $node['DemoPlan'].json;\n  if (typeof planData === 'string') {\n    plan = JSON.parse(planData);\n  } else {\n    plan = planData;\n  }\n} catch (e) {\n  console.log('Error parsing plan:', e.message);\n  plan = {\n    search_queries: [\n      'site:lever.co engineer',\n      'site:greenhouse.io data scientist'\n    ],\n    extraction_instructions: {\n      fields: ['title', 'company', 'location', 'posted_date', 'employment_type', 'description', 'requirements', 'skills']\n    }\n  };\n}\n\nreturn [{ json: plan }];"
+      },
+      "id": "ParsePlan",
+      "name": "Parse Controller Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Split search queries into individual items\nlet qs = [];\ntry {\n  if (Array.isArray($node['ParsePlan'].json.search_queries)) {\n    qs = $node['ParsePlan'].json.search_queries;\n  }\n} catch (e) {\n  console.log('Error getting search queries:', e.message);\n  qs = ['site:lever.co engineer'];\n}\n\n// Limit to max number from config\nconst max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 3, 10);\nreturn qs.slice(0, max).map(q => ({ json: { query: q } }));"
+      },
+      "id": "SplitQueries",
+      "name": "Split Search Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1
+      },
+      "id": "SplitBatches",
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "content": "={\n  \"results\": [\n    {\n      \"title\": \"Machine Learning Engineer\",\n      \"link\": \"https://example.com/jobs/12345\",\n      \"snippet\": \"Example company is looking for a skilled Machine Learning Engineer...\"\n    },\n    {\n      \"title\": \"Senior Data Scientist\",\n      \"link\": \"https://example.com/jobs/67890\",\n      \"snippet\": \"Join our data science team to work on cutting-edge AI solutions...\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "DemoSearchResults",
+      "name": "Demo Search Results",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract URLs from search results\nlet results;\ntry {\n  const resultsData = $node['DemoSearchResults'].json;\n  if (typeof resultsData === 'string') {\n    results = JSON.parse(resultsData);\n  } else {\n    results = resultsData;\n  }\n} catch (e) {\n  console.log('Error parsing search results:', e.message);\n  results = { results: [] };\n}\n\n// Extract links from results\nconst links = [];\ntry {\n  if (results.results && Array.isArray(results.results)) {\n    for (const r of results.results) {\n      if (r.link) links.push(r.link);\n    }\n  }\n} catch (e) {\n  console.log('Error extracting links:', e.message);\n}\n\n// If no links found, create a demo link\nif (links.length === 0) {\n  links.push('https://example.com/jobs/demo-job');\n}\n\nreturn links.map(url => ({ json: { url } }));"
+      },
+      "id": "ExtractURLs",
+      "name": "Extract Result URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1
+      },
+      "id": "SplitURLs",
+      "name": "Split URLs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "content": "=<html>\n  <body>\n    <div class=\"job-posting\">\n      <h1 class=\"job-title\">Senior Machine Learning Engineer</h1>\n      <div class=\"company\">Example Tech Inc.</div>\n      <div class=\"location\">San Francisco, CA (Remote)</div>\n      <div class=\"posted-date\">Posted: June 15, 2025</div>\n      <div class=\"employment-type\">Full-time</div>\n      \n      <div class=\"description\">\n        <p>Example Tech is looking for a Senior Machine Learning Engineer to join our AI team. You will be responsible for developing and deploying machine learning models to improve our product recommendations.</p>\n      </div>\n      \n      <div class=\"requirements\">\n        <h3>Requirements:</h3>\n        <ul>\n          <li>5+ years of experience in machine learning or related field</li>\n          <li>Strong programming skills in Python</li>\n          <li>Experience with deep learning frameworks</li>\n          <li>MS or PhD in Computer Science, AI, or related field</li>\n        </ul>\n      </div>\n      \n      <div class=\"skills\">\n        <h3>Technical Skills:</h3>\n        <ul>\n          <li>Python</li>\n          <li>TensorFlow or PyTorch</li>\n          <li>SQL</li>\n          <li>AWS or GCP</li>\n          <li>Docker</li>\n        </ul>\n      </div>\n    </div>\n  </body>\n</html>",
+        "options": {}
+      },
+      "id": "DemoJobPage",
+      "name": "Demo Job Page HTML",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [1900, 300]
+    },
+    {
+      "parameters": {
+        "content": "={\n  \"title\": \"Senior Machine Learning Engineer\",\n  \"company\": \"Example Tech Inc.\",\n  \"location\": \"San Francisco, CA (Remote)\",\n  \"posted_date\": \"June 15, 2025\",\n  \"employment_type\": \"Full-time\",\n  \"description\": \"Example Tech is looking for a Senior Machine Learning Engineer to join our AI team. You will be responsible for developing and deploying machine learning models to improve our product recommendations.\",\n  \"requirements\": [\n    \"5+ years of experience in machine learning or related field\",\n    \"Strong programming skills in Python\",\n    \"Experience with deep learning frameworks\",\n    \"MS or PhD in Computer Science, AI, or related field\"\n  ],\n  \"skills\": [\n    \"Python\",\n    \"TensorFlow\",\n    \"PyTorch\",\n    \"SQL\",\n    \"AWS\",\n    \"GCP\",\n    \"Docker\"\n  ],\n  \"source_url\": \"{{$json.url}}\",\n  \"soft_confidence\": 0.85,\n  \"needs_review\": false,\n  \"reasons\": []\n}",
+        "options": {}
+      },
+      "id": "DemoParser",
+      "name": "Demo Parser Result",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [2100, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse the extraction result\nlet parsed;\ntry {\n  const parserData = $node['DemoParser'].json;\n  if (typeof parserData === 'string') {\n    parsed = JSON.parse(parserData);\n  } else {\n    parsed = parserData;\n  }\n} catch (e) {\n  console.log('Error parsing result:', e.message);\n  parsed = {};\n}\n\n// Add the source URL if not present\nif (!parsed.source_url) {\n  parsed.source_url = $json.url || 'https://example.com/jobs/demo';\n}\n\n// Assess confidence\nconst threshold = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72);\nconst isConfident = (parsed.soft_confidence || 0) >= threshold && \n                    Array.isArray(parsed.skills) && \n                    parsed.skills.length > 0 && \n                    parsed.title && \n                    parsed.company;\n\nreturn [{ \n  json: { \n    parsed, \n    isConfident, \n    threshold \n  } \n}];"
+      },
+      "id": "AssessResult",
+      "name": "Assess Parser Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2300, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isConfident}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "id": "ConfidenceCheck",
+      "name": "Check Confidence",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2500, 300]
+    },
+    {
+      "parameters": {
+        "content": "={\n  \"title\": \"{{$json.parsed.title || 'Unknown Job Title'}}\",\n  \"company\": \"{{$json.parsed.company || 'Unknown Company'}}\",\n  \"location\": \"{{$json.parsed.location || 'Remote/Unspecified'}}\",\n  \"posted_date\": \"{{$json.parsed.posted_date || 'Unknown Date'}}\",\n  \"employment_type\": \"{{$json.parsed.employment_type || 'Full-time'}}\",\n  \"description\": \"{{$json.parsed.description || 'No description available'}}\",\n  \"requirements\": {{JSON.stringify($json.parsed.requirements || [])}},\n  \"skills\": {{JSON.stringify($json.parsed.skills || [])}},\n  \"source_url\": \"{{$json.parsed.source_url}}\",\n  \"soft_confidence\": {{$json.parsed.soft_confidence || 0.9}},\n  \"needs_review\": false,\n  \"reasons\": []\n}",
+        "options": {}
+      },
+      "id": "HighConfidenceResult",
+      "name": "High Confidence Result",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [2700, 250]
+    },
+    {
+      "parameters": {
+        "content": "={\n  \"title\": \"{{$json.parsed.title || 'Unknown Job Title'}}\",\n  \"company\": \"{{$json.parsed.company || 'Unknown Company'}}\",\n  \"location\": \"{{$json.parsed.location || 'Remote/Unspecified'}}\",\n  \"posted_date\": \"{{$json.parsed.posted_date || 'Unknown Date'}}\",\n  \"employment_type\": \"{{$json.parsed.employment_type || 'Full-time'}}\",\n  \"description\": \"{{$json.parsed.description ? $json.parsed.description.substring(0, 100) + '...' : 'No description available'}}\",\n  \"requirements\": {{JSON.stringify($json.parsed.requirements || [])}},\n  \"skills\": {{JSON.stringify($json.parsed.skills || [])}},\n  \"source_url\": \"{{$json.parsed.source_url}}\",\n  \"soft_confidence\": {{$json.parsed.soft_confidence || 0.6}},\n  \"needs_review\": true,\n  \"reasons\": [\"low-confidence\", \"missing fields\"]\n}",
+        "options": {}
+      },
+      "id": "LowConfidenceResult",
+      "name": "Low Confidence Result",
+      "type": "n8n-nodes-base.textTemplate",
+      "typeVersion": 1,
+      "position": [2700, 350]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build the final record\nlet recordData;\ntry {\n  if ($json.isConfident) {\n    recordData = $node['HighConfidenceResult'].json;\n  } else {\n    recordData = $node['LowConfidenceResult'].json;\n  }\n  \n  if (typeof recordData === 'string') {\n    recordData = JSON.parse(recordData);\n  }\n} catch (e) {\n  console.log('Error getting record data:', e.message);\n  recordData = {};\n}\n\n// Add timestamp\nconst now = new Date().toISOString();\nrecordData.harvest_run_ts = now;\n\nreturn [{ json: { record: recordData } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2900, 300]
+    },
+    {
+      "parameters": {
+        "path": "=/jesse/job_harvester/{{$json.record.company.replace(/[^a-zA-Z0-9]/g, '_')}}_{{$json.record.title.replace(/[^a-zA-Z0-9]/g, '_')}}.json",
+        "options": {}
+      },
+      "id": "WriteFile",
+      "name": "Write Result to File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [3100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "CheckDiscordConfig",
+      "name": "Check if Discord is Configured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3100, 300]
     },
     {
       "parameters": {
         "resource": "message",
         "operation": "send",
-        "channelId": "={{$node[\"Config\"].json.DISCORD_CHANNEL_ID}}",
-        "message": "New job harvested ({{ $json[\"record\"].needs_review ? \"needs_review\" : \"ok\" }})\\nTitle: {{ $json[\"record\"].title }} | Company: {{ $json[\"record\"].company }}\\nConfidence: {{ $json[\"record\"].soft_confidence }}\\nURL: {{ $json[\"record\"].source_url }}\\nNotes: {{ ($json[\"record\"].reasons || []).join(\", \") }}\\n(Informational only; pipeline continues automatically.)"
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "New job harvested ({{ $json.record.needs_review ? '⚠️ NEEDS REVIEW' : '✅ OK' }})\nTitle: {{ $json.record.title }} | Company: {{ $json.record.company }}\nConfidence: {{ $json.record.soft_confidence.toFixed(2) }}\nSkills: {{ ($json.record.skills || []).slice(0,5).join(', ') }}"
       },
       "id": "DiscordNotify",
-      "name": "Discord: Notify per Record",
+      "name": "Discord: Notify",
       "type": "n8n-nodes-base.discord",
-      "typeVersion": 1
+      "typeVersion": 1,
+      "position": [3300, 250]
     },
-    { "parameters": {}, "id": "NextURL", "name": "Next URL", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$node['SplitURLs'].context.currentRunIndex}}",
+              "operation": "smaller",
+              "value2": 2
+            }
+          ]
+        }
+      },
+      "id": "CheckMoreURLs",
+      "name": "Check for More URLs",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3100, 400]
+    },
+    {
+      "parameters": {},
+      "id": "NextURL",
+      "name": "Next URL",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3300, 400]
+    },
+    {
+      "parameters": {},
+      "id": "WorkflowDone",
+      "name": "Workflow Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3300, 500]
+    }
   ],
   "connections": {
-    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
-    "Config": {
-      "main": [ [ { "node": "Load Controller Prompt", "type": "main", "index": 0 }, { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ]
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Load Controller Prompt": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
-    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 }, { "node": "Split Search Queries", "type": "main", "index": 0 } ] ] },
-    "Split Search Queries": { "main": [ [ { "node": "Web Search (HTTP)", "type": "main", "index": 0 } ] ] },
-    "Web Search (HTTP)": { "main": [ [ { "node": "Extract Result URLs", "type": "main", "index": 0 } ] ] },
-    "Extract Result URLs": { "main": [ [ { "node": "Split URLs", "type": "main", "index": 0 } ] ] },
-    "Split URLs": { "main": [ [ { "node": "Fetch Page (HTTP)", "type": "main", "index": 0 } ] ] },
-    "Fetch Page (HTTP)": { "main": [ [ { "node": "LLM Parser A1", "type": "main", "index": 0 } ] ] },
-    "LLM Parser A1": { "main": [ [ { "node": "Assess A1", "type": "main", "index": 0 } ] ] },
-    "Assess A1": { "main": [ [ { "node": "IF Confident A1", "type": "main", "index": 0 } ] ] },
-    "IF Confident A1": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 }, { "node": "LLM Parser A2", "type": "main", "index": 0 } ] ] },
-    "LLM Parser A2": { "main": [ [ { "node": "Assess A2", "type": "main", "index": 0 } ] ] },
-    "Assess A2": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
-    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Record", "type": "main", "index": 0 }, { "node": "Next URL", "type": "main", "index": 0 } ] ] },
-    "Next URL": { "main": [ [ { "node": "Split URLs", "type": "main", "index": 0 } ] ] }
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "DemoPlan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoPlan": {
+      "main": [
+        [
+          {
+            "node": "ParsePlan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ParsePlan": {
+      "main": [
+        [
+          {
+            "node": "SplitQueries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitQueries": {
+      "main": [
+        [
+          {
+            "node": "SplitBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitBatches": {
+      "main": [
+        [
+          {
+            "node": "DemoSearchResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoSearchResults": {
+      "main": [
+        [
+          {
+            "node": "ExtractURLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractURLs": {
+      "main": [
+        [
+          {
+            "node": "SplitURLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitURLs": {
+      "main": [
+        [
+          {
+            "node": "DemoJobPage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoJobPage": {
+      "main": [
+        [
+          {
+            "node": "DemoParser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DemoParser": {
+      "main": [
+        [
+          {
+            "node": "AssessResult",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AssessResult": {
+      "main": [
+        [
+          {
+            "node": "ConfidenceCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ConfidenceCheck": {
+      "main": [
+        [
+          {
+            "node": "HighConfidenceResult",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LowConfidenceResult",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HighConfidenceResult": {
+      "main": [
+        [
+          {
+            "node": "BuildRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LowConfidenceResult": {
+      "main": [
+        [
+          {
+            "node": "BuildRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildRecord": {
+      "main": [
+        [
+          {
+            "node": "WriteFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CheckDiscordConfig",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CheckMoreURLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckDiscordConfig": {
+      "main": [
+        [
+          {
+            "node": "DiscordNotify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "CheckMoreURLs": {
+      "main": [
+        [
+          {
+            "node": "NextURL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WorkflowDone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL": {
+      "main": [
+        [
+          {
+            "node": "SplitURLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
-  "meta": { "workflowVersion": "1.1", "description": "Autonomous job posting harvester with LLM controller, Discord notifications (non-blocking), and JSON outputs for downstream tools." }
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1",
+  "meta": {
+    "instanceId": "demo-instance",
+    "description": "Simplified job posting harvester with static demo data to help students learn the workflow structure."
+  }
 }
