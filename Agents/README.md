@@ -85,7 +85,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Cross\_Domain\_Alignment\_Agent.json](./Jesse_AI_Cross_Domain_Alignment_Agent.json)
 
-![AI Cross-Domain Alignment Agent Workflow](./Jesse_AI_Cross_Domain_Alignment_Agent.png)
+![AI Cross-Domain Alignment Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Cross-Domain_Alignment_Agent.png)
 
 **What it does**
 
