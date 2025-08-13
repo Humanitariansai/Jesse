@@ -21,7 +21,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Job\_Posting\_Harvester.json](./Jesse_AI_Job_Posting_Harvester.json)
 
-![AI Job Posting Harvester Workflow](./Jesse_AI_Job_Posting_Harvester.png)
+![AI Job Posting Harvester Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Job_Posting_Harvester.png)
 
 **What it does**
 
@@ -42,7 +42,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Syllabi\_Analysis\_Agent.json](./Jesse_AI_Syllabi_Analysis_Agent.json)
 
-![AI Syllabi Analysis Agent Workflow](./Jesse_AI_Syllabi_Analysis_Agent.png)
+![AI Syllabi Analysis Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Syllabi_Analysis_Agent.png)
 
 **What it does**
 
@@ -64,7 +64,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_SkillsLex\_Enrichment\_Agent.json](./Jesse_AI_SkillsLex_Enrichment_Agent.json)
 
-![AI SkillsLex Enrichment Agent Workflow](./Jesse_AI_SkillsLex_Enrichment_Agent.png)
+![AI SkillsLex Enrichment Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_SkillsLex_Enrichment_Agent.png)
 
 **What it does**
 
@@ -106,7 +106,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Data\_Quality\_Assurance\_Agent.json](./Jesse_AI_Data_Quality_Assurance_Agent.json)
 
-![AI Data Quality Assurance Agent Workflow](./Jesse_AI_Data_Quality_Assurance_Agent.png)
+![AI Data Quality Assurance Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Data_Quality_Assurance_Agent.png)
 
 **What it does**
 
@@ -128,7 +128,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Trend\_Analysis\_Agent.json](./Jesse_AI_Trend_Analysis_Agent.json)
 
-![AI Trend Analysis Agent Workflow](./Jesse_AI_Trend_Analysis_Agent.png)
+![AI Trend Analysis Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Trend_Analysis_Agent.png)
 
 **What it does**
 
@@ -149,7 +149,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_User\_Interaction\_Agent.json](./Jesse_AI_User_Interaction_Agent.json)
 
-![AI User Interaction Agent Workflow](./Jesse_AI_User_Interaction_Agent.png)
+![AI User Interaction Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_User_Interaction_Agent.png)
 
 **What it does**
 
@@ -170,7 +170,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Educational\_Pathways\_Agent.json](./Jesse_AI_Educational_Pathways_Agent.json)
 
-![AI Educational Pathways Agent Workflow](./Jesse_AI_Educational_Pathways_Agent.png)
+![AI Educational Pathways Agent Workflow](https://raw.githubusercontent.com/Humanitariansai/Jesse/refs/heads/main/Agents/Jesse_AI_Educational_Pathways_Agent.png)
 
 **What it does**
 
