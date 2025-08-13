@@ -161,6 +161,12 @@ Project Jesse leverages advanced AI infrastructure to ensure intelligence, adapt
 
 Project Jesse will implement the following intelligent agent workflows powered by advanced AI to automate and enhance the data gathering and analysis processes:
 
+### To create an initial n8n agent use the following prompt with a description of the agent in your fav LLM.
+
+```
+Create a n8n agentic workflow with a LLM controller for the following;
+```
+
 ### Appendix A: Intelligent Agent Workflows
 
 1. **AI Job Posting Harvester Agent**
