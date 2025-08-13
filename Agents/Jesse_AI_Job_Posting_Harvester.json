@@ -1,0 +1,174 @@
+{
+  "_comment": "Jesse — AI_Job_Posting_Harvester.json",
+  "name": "Jesse — AI Job Posting Harvester (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "SEED_QUERIES", "value": "site:lever.co engineer; site:greenhouse.io data scientist; site:workday.com product manager; site:jobs.lever.co ai research; site:boards.greenhouse.io machine learning" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.72" },
+            { "name": "MAX_NEW_SOURCES", "value": "15" },
+            { "name": "SEARCH_API_BASE", "value": "https://api.example.com/search" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": { "schemaType": "define", "fields": [ { "fieldName": "controller_prompt", "type": "string" } ] }
+      },
+      "id": "LoadPrompt",
+      "name": "Load Controller Prompt",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for the Project Jesse Job Posting Harvester. Goals: (1) autonomously discover new high-quality job sources (self-supervised exploration), (2) plan crawl targets, (3) adapt extraction instructions to novel page formats (few-shot transfer), (4) quantify uncertainty for active learning (non-blocking). Tools via downstream nodes: WEB_SEARCH(query)->results, FETCH(url)->html, PARSE(html)->structured_posting, SAVE(record_json), REPORT(discord_message). Given seeds and any stored prompt, output a JSON plan ONLY:\\n{\\n  \"search_queries\": [\"...\"],\\n  \"crawl_budget\": 50,\\n  \"priority_rules\": [\"prefer postings with skills blocks\", \"prefer recent < 30 days\"],\\n  \"extraction_instructions\": {\\n     \"fields\": [\"title\",\"company\",\"location\",\"posted_date\",\"employment_type\",\"description\",\"requirements\",\"skills\"],\\n     \"format\": \"json\",\\n     \"few_shots\": [\\n       {\"html_excerpt\":\"<div class=\\\"job\\\">Skills: Python, SQL, AWS</div>\",\"output\":{\"skills\":[\"Python\",\"SQL\",\"AWS\"]}},\\n       {\"html_excerpt\":\"<ul><li>Proficiency in TensorFlow or PyTorch</li></ul>\",\"output\":{\"skills\":[\"TensorFlow\",\"PyTorch\"]}}\\n     ]\\n  },\\n  \"uncertainty_policy\": {\\n    \"metric\":\"soft_confidence\",\\n    \"threshold\": {{$json[\"CONFIDENCE_THRESHOLD\"] || 0.72}},\\n    \"retry_max\": 1,\\n    \"on_low_confidence\": \"save_anyway_and_notify\"\\n  }\\n}",
+        "messages": [
+          {
+            "text": "Seeds: {{$node[\"Config\"].json.SEED_QUERIES}}\\nRegion: {{$node[\"Config\"].json.REGION}} | Language: {{$node[\"Config\"].json.LANGUAGE}}\\nIf a stored prompt exists above, incorporate it; otherwise synthesize from Goals."
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+    { "parameters": { "functionCode": "let plan; try { plan = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { plan = items[0].json; } return [{ json: plan }];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    { "parameters": { "functionCode": "const qs = Array.isArray(items[0].json.search_queries) ? items[0].json.search_queries : []; const max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 15, 10); return qs.slice(0, max).map(q => ({ json: { query: q } }));" }, "id": "SplitQueries", "name": "Split Search Queries", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    {
+      "parameters": {
+        "url": "={{$node[\"Config\"].json.SEARCH_API_BASE}}",
+        "queryParametersUi": { "parameter": [ { "name": "q", "value": "={{$json[\"query\"]}}" }, { "name": "hl", "value": "={{$node[\"Config\"].json.LANGUAGE}}" }, { "name": "gl", "value": "={{$node[\"Config\"].json.REGION}}" }, { "name": "count", "value": "10" } ] },
+        "jsonParameters": false,
+        "options": {},
+        "authentication": "none"
+      },
+      "id": "SearchHTTP",
+      "name": "Web Search (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+    { "parameters": { "functionCode": "const d = items[0].json || {}; const arr = (d.results || d.items || []).map(r => r.link || r.url).filter(Boolean); return arr.map(u => ({ json: { url: u } }));" }, "id": "ExtractURLs", "name": "Extract Result URLs", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    { "parameters": { "batchSize": 1 }, "id": "SplitURLs", "name": "Split URLs", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+    { "parameters": { "url": "={{$json[\"url\"]}}", "responseFormat": "string", "ignoreResponseCode": true }, "id": "FetchPage", "name": "Fetch Page (HTTP)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Neural document understanding parser for job postings. Extract strictly JSON: { \"title\",\"company\",\"location\",\"posted_date\",\"employment_type\",\"description\",\"requirements\":[],\"skills\":[],\"source_url\",\"soft_confidence\":0..1,\"needs_review\":false,\"reasons\":[] }",
+        "messages": [ { "text": "Extraction instructions:\\n{{$node[\"ParsePlan\"].json.extraction_instructions}}\\n\\nHTML:\\n{{$node[\"FetchPage\"].json}}\\n\\nSource URL: {{$json[\"url\"]}}" } ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMParserA1",
+      "name": "LLM Parser A1",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+    { "parameters": { "functionCode": "let p; try { p = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { p = items[0].json; } if (!p) p = {}; const th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72); const ok = (p.soft_confidence ?? 0) >= th && Array.isArray(p.skills) && p.skills.length>0 && p.title && p.company; return [{ json: { parsed: p, isConfident: ok, threshold: th, url: p.source_url || $node['FetchPage'].json.request?.url || $json.url } }];" }, "id": "AssessA1", "name": "Assess A1", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    { "parameters": { "conditions": { "boolean": [ { "value1": "={{$json[\"isConfident\"]}}", "operation": "isTrue" } ] } }, "id": "IF_A1", "name": "IF Confident A1", "type": "n8n-nodes-base.if", "typeVersion": 1 },
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Retry parser with stronger heuristics for unstructured HTML. Infer missing fields. Extract strictly the same JSON schema.",
+        "messages": [ { "text": "Extraction instructions (robust):\\n{{$node[\"ParsePlan\"].json.extraction_instructions}}\\n\\nHTML:\\n{{$node[\"FetchPage\"].json}}\\n\\nSource URL: {{$json[\"url\"]}}" } ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMParserA2",
+      "name": "LLM Parser A2",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+    { "parameters": { "functionCode": "let p; try { p = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { p = items[0].json; } if (!p) p = {}; const th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.72); const ok = (p.soft_confidence ?? 0) >= th && Array.isArray(p.skills) && p.skills.length>0 && p.title && p.company; if (!ok) { p.needs_review = true; p.reasons = Array.isArray(p.reasons) ? p.reasons : []; p.reasons.push('low-confidence'); } return [{ json: { parsed: p, isConfident: ok, threshold: th } }];" }, "id": "AssessA2", "name": "Assess A2", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    { "parameters": { "functionCode": "const p = $json.parsed || {}; const now = new Date().toISOString(); const record = { title: p.title || null, company: p.company || null, location: p.location || null, posted_date: p.posted_date || null, employment_type: p.employment_type || null, description: p.description || null, requirements: p.requirements || [], skills: p.skills || [], source_url: p.source_url || $node['FetchPage'].json.request?.url || null, soft_confidence: p.soft_confidence ?? 0, needs_review: !!p.needs_review, reasons: p.reasons || [], harvest_run_ts: now }; return [{ json: { record } }];" }, "id": "BuildRecord", "name": "Build JSON Record", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json[\"record\"])}}" },
+              { "fieldName": "source_url", "fieldType": "string", "fieldValue": "={{$json[\"record\"].source_url || \"\"}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json[\"record\"].soft_confidence}}" },
+              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json[\"record\"].needs_review}}" },
+              { "fieldName": "harvest_run_ts", "fieldType": "string", "fieldValue": "={{$json[\"record\"].harvest_run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Config\"].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json[\"record\"]}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node[\"Config\"].json.DISCORD_CHANNEL_ID}}",
+        "message": "New job harvested ({{ $json[\"record\"].needs_review ? \"needs_review\" : \"ok\" }})\\nTitle: {{ $json[\"record\"].title }} | Company: {{ $json[\"record\"].company }}\\nConfidence: {{ $json[\"record\"].soft_confidence }}\\nURL: {{ $json[\"record\"].source_url }}\\nNotes: {{ ($json[\"record\"].reasons || []).join(\", \") }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Record",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1
+    },
+    { "parameters": {}, "id": "NextURL", "name": "Next URL", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config": {
+      "main": [ [ { "node": "Load Controller Prompt", "type": "main", "index": 0 }, { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ]
+    },
+    "Load Controller Prompt": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 }, { "node": "Split Search Queries", "type": "main", "index": 0 } ] ] },
+    "Split Search Queries": { "main": [ [ { "node": "Web Search (HTTP)", "type": "main", "index": 0 } ] ] },
+    "Web Search (HTTP)": { "main": [ [ { "node": "Extract Result URLs", "type": "main", "index": 0 } ] ] },
+    "Extract Result URLs": { "main": [ [ { "node": "Split URLs", "type": "main", "index": 0 } ] ] },
+    "Split URLs": { "main": [ [ { "node": "Fetch Page (HTTP)", "type": "main", "index": 0 } ] ] },
+    "Fetch Page (HTTP)": { "main": [ [ { "node": "LLM Parser A1", "type": "main", "index": 0 } ] ] },
+    "LLM Parser A1": { "main": [ [ { "node": "Assess A1", "type": "main", "index": 0 } ] ] },
+    "Assess A1": { "main": [ [ { "node": "IF Confident A1", "type": "main", "index": 0 } ] ] },
+    "IF Confident A1": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 }, { "node": "LLM Parser A2", "type": "main", "index": 0 } ] ] },
+    "LLM Parser A2": { "main": [ [ { "node": "Assess A2", "type": "main", "index": 0 } ] ] },
+    "Assess A2": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Record", "type": "main", "index": 0 }, { "node": "Next URL", "type": "main", "index": 0 } ] ] },
+    "Next URL": { "main": [ [ { "node": "Split URLs", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "workflowVersion": "1.1", "description": "Autonomous job posting harvester with LLM controller, Discord notifications (non-blocking), and JSON outputs for downstream tools." }
+}

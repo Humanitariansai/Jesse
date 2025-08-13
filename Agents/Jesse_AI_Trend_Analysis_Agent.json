@@ -1,0 +1,229 @@
+{
+  "_comment": "Jesse — AI_Trend_Analysis_Agent.json",
+  "name": "Jesse — AI Trend Analysis Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "JOBS_SOURCE_URL", "value": "https://api.example.com/jesse/job_postings" },
+            { "name": "SKILLSLEX_SOURCE_URL", "value": "https://api.example.com/jesse/skillslex" },
+            { "name": "WINDOW_DAYS", "value": "365" },
+            { "name": "FORECAST_HORIZON_DAYS", "value": "90" },
+            { "name": "TOP_N_SKILLS", "value": "25" },
+            { "name": "MIN_FREQ", "value": "30" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — Trend Analysis. Plan an autonomous run that: (1) defines trending skill selection policy, (2) sets forecasting and topic-clustering policies, (3) defines causal-inference heuristics to separate signal from noise, (4) prescribes an early-identification scoring rubric. Output JSON ONLY:\\n{\\n  \"selection_policy\": {\"min_freq\": {{$node['Config'].json.MIN_FREQ || 30}}, \"top_n\": {{$node['Config'].json.TOP_N_SKILLS || 25}}, \"growth_metric\": \"slope_over_mean\"},\\n  \"forecast_policy\": {\"horizon_days\": {{$node['Config'].json.FORECAST_HORIZON_DAYS || 90}}, \"method\": \"robust-linear + seasonality-notes\"},\\n  \"topic_policy\": {\"cluster_k\": 6, \"label_style\": \"concise 1-3 words\", \"use_definitions\": true},\\n  \"causal_policy\": {\"accept_threshold\": 0.6, \"notes\": \"compare against baseline posting volume to discount seasonality\"},\\n  \"early_id_policy\": {\"weights\": {\"growth\":0.4, \"forecast_delta\":0.35, \"novelty\":0.15, \"causal_signal\":0.10}, \"novelty_low_base\": true}\\n}",
+        "messages": [
+          { "text": "Region: {{$node['Config'].json.REGION}} | Language: {{$node['Config'].json.LANGUAGE}} | Window: {{$node['Config'].json.WINDOW_DAYS}} days | Horizon: {{$node['Config'].json.FORECAST_HORIZON_DAYS}} days" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    { "parameters": { "functionCode": "let plan; try{plan=JSON.parse(items[0].json.data||items[0].json||'{}')}catch{plan=items[0].json}; return [{json: plan}];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+
+    { "parameters": { "url": "={{$node['Config'].json.JOBS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchJobs", "name": "Fetch Job Postings (window)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.SKILLSLEX_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSkillsLex", "name": "Fetch SkillsLex (optional)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    {
+      "parameters": {
+        "functionCode": "function asArr(x){if(!x)return[]; if(Array.isArray(x))return x; if(x.data){try{return JSON.parse(x.data)}catch{}} return x.items||x.results||x.records||x;}\nfunction ymd(d){const z=n=>('0'+n).slice(-2); return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());}\nfunction parseDateAny(r){const c=[r.posted_date,r.postedDate,r.date,r.created_at,r.createdAt,r.postedAt]; for(const v of c){ if(!v) continue; const d=new Date(v); if(!isNaN(d)) return d; } return null;}\nconst WINDOW_DAYS=parseInt($node['Config'].json.WINDOW_DAYS||365,10);\nconst MIN_FREQ=parseInt($node['Config'].json.MIN_FREQ||30,10);\nconst now=new Date(); const start=new Date(now.getTime()-WINDOW_DAYS*86400000);\nconst jobs=asArr($node['Fetch Job Postings (window)'].json);\n// Build baseline postings per day and per-skill counts\nconst baseline=new Map(); // day -> count\nconst bySkill=new Map();  // skill -> Map(day->count)\nfor(const r of jobs){ const d=parseDateAny(r); if(!d) continue; if(d<start) continue; const day=ymd(d); baseline.set(day,(baseline.get(day)||0)+1); const skills=Array.isArray(r.skills)? r.skills : (r.skill? [r.skill]: []); for(let s of skills){ if(!s) continue; s=String(s).trim(); if(!s) continue; const m=bySkill.get(s)||new Map(); m.set(day,(m.get(day)||0)+1); bySkill.set(s,m); }}\n// build full day index\nconst days=[]; for(let i=0;i<=WINDOW_DAYS;i++){ const d=new Date(start.getTime()+i*86400000); days.push(ymd(d)); }\nfunction seriesFromMap(m){return days.map((day,idx)=>({ t:day, x:idx, y:(m.get(day)||0) }));}\nconst baselineSeries=seriesFromMap(baseline);\n// summarize each skill\nconst summary=[]; const seriesBySkill={};\nfor(const [skill,m] of bySkill.entries()){ const s=seriesFromMap(m); const n=s.length; const mean=s.reduce((a,b)=>a+b.y,0)/Math.max(1,n); // linear regression y ~ a + b*x\n let sumx=0,sumy=0,sumxy=0,sumxx=0; for(const p of s){ sumx+=p.x; sumy+=p.y; sumxy+=p.x*p.y; sumxx+=p.x*p.x; }\n const denom=(n*sumxx - sumx*sumx)||1; const slope=(n*sumxy - sumx*sumy)/denom; const growth=slope/Math.max(1e-6,mean);\n const total=s.reduce((a,b)=>a+b.y,0); if(total>=MIN_FREQ){ summary.push({skill,total,mean,slope,growth}); seriesBySkill[skill]=s; }\n}\nsummary.sort((a,b)=>b.growth-a.growth);\nreturn [{ json: { days, baselineSeries, seriesBySkill, summary } }];"
+      },
+      "id": "BuildTS",
+      "name": "Build Time Series + Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const topN=parseInt($node['Config'].json.TOP_N_SKILLS||25,10); const list=($json.summary||[]).filter(x=>x.slope>0).slice(0,topN); const out=[]; for(const it of list){ out.push({ json: { skill: it.skill, stats: it, series: $json.seriesBySkill[it.skill], baselineSeries: $json.baselineSeries } }); } return out;"
+      },
+      "id": "SelectTopSkills",
+      "name": "Select Top Skills",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Cluster skills into concise topics using names and optional definitions. Output STRICT JSON: {\"clusters\": [{\"label\":\"\",\"members\":[\"skill1\",\"skill2\",...] }], \"mapping\": {\"skill\":\"label\", ...} }",
+        "messages": [
+          {
+            "text": "Topic policy: {{$node['Parse Controller Plan'].json.topic_policy}}\\nSkills: {{ $items('Select Top Skills').map(i=>i.json.skill) }}\\nDefinitions (optional): {{ ($node['Fetch SkillsLex (optional)'].json.items || $node['Fetch SkillsLex (optional)'].json.results || $node['Fetch SkillsLex (optional)'].json).slice ? ($node['Fetch SkillsLex (optional)'].json.items || $node['Fetch SkillsLex (optional)'].json.results || []).slice(0,200) : $node['Fetch SkillsLex (optional)'].json }}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMCluster",
+      "name": "LLM Cluster Topics",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    { "parameters": { "batchSize": 1 }, "id": "SplitSkills", "name": "Split Skills", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "functionCode": "const s=$json.series||[]; const H=parseInt($node['Config'].json.FORECAST_HORIZON_DAYS||90,10); if(!s.length){return [{json:{forecast:[],trend_label:'unknown',r2:0,slope:0}}];}\nconst n=s.length; let sumx=0,sumy=0,sumxy=0,sumxx=0; for(const p of s){ sumx+=p.x; sumy+=p.y; sumxy+=p.x*p.y; sumxx+=p.x*p.x; }\nconst denom=(n*sumxx - sumx*sumx)||1; const slope=(n*sumxy - sumx*sumy)/denom; const intercept=(sumy - slope*sumx)/n; // R^2\nlet ssTot=0, ssRes=0; const ybar=sumy/n; for(const p of s){ const yhat=intercept + slope*p.x; ssTot+=(p.y - ybar)*(p.y - ybar); ssRes+=(p.y - yhat)*(p.y - yhat); }\nconst r2 = ssTot>0 ? (1 - ssRes/ssTot) : 0; // forecast\nconst lastIndex = s[s.length-1].x; const forecast=[]; for(let i=1;i<=H;i++){ const x=lastIndex+i; const y=Math.max(0, intercept + slope*x); const t=new Date(s[0].t); t.setDate(t.getDate()+x); const ymd = (d=>{const z=n=>('0'+n).slice(-2); return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());})(t); forecast.push({ t: ymd, y: Number(y.toFixed(3)) }); }\nlet trend='stable'; if(slope>0.02) trend='rising'; if(slope<-0.02) trend='falling';\nreturn [{ json: { forecast, trend_label: trend, r2: Number(r2.toFixed(4)), slope: Number(slope.toFixed(5)) } }];"
+      },
+      "id": "ForecastTS",
+      "name": "Forecast Time Series (JS)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Causal signal check vs. baseline to discount seasonality. Output STRICT JSON: {\"is_signal\": true|false, \"effect_size\": 0..1, \"p_confidence\": 0..1, \"drivers\": [], \"notes\": [] }",
+        "messages": [
+          {
+            "text": "Causal policy: {{$node['Parse Controller Plan'].json.causal_policy}}\\nSkill: {{$json['skill']}}\\nSkill series (last 90 pts): {{ ($json['series']||[]).slice(-90) }}\\nBaseline series (last 90 pts): {{ ($json['baselineSeries']||[]).slice(-90) }}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMCausal",
+      "name": "LLM Causal Check",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst plan=$node['Parse Controller Plan'].json||{}; const weights=(plan.early_id_policy&&plan.early_id_policy.weights)||{growth:0.4,forecast_delta:0.35,novelty:0.15,causal_signal:0.10};\nconst stats=$json.stats||{}; const slope=Number(stats.slope||0); const mean=Number(stats.mean||0);\nconst forecast=$node['Forecast Time Series (JS)'].json.forecast||[]; const hist=$json.series||[]; const last=hist.length? hist[hist.length-1].y : 0; const end=forecast.length? forecast[forecast.length-1].y : 0; const delta=end - last; const deltaScore = Math.max(0, Math.min(1, delta / Math.max(1, last+1)));\nconst growthScore = Math.max(0, Math.min(1, slope / Math.max(0.01, mean+0.01)));\nconst noveltyScore = Math.max(0, Math.min(1, mean<=1 ? 1 : 1/Math.sqrt(mean)));\nconst causal = safe($node['LLM Causal Check'].json)||{}; const causalScore = Math.max(0, Math.min(1, (causal.is_signal?1:0) * (causal.p_confidence||0)));\nconst emergence = weights.growth*growthScore + weights.forecast_delta*deltaScore + weights.novelty*noveltyScore + weights.causal_signal*causalScore;\nreturn [{ json: { growthScore:Number(growthScore.toFixed(4)), deltaScore:Number(deltaScore.toFixed(4)), noveltyScore:Number(noveltyScore.toFixed(4)), causalScore:Number(causalScore.toFixed(4)), emergence_score:Number(emergence.toFixed(4)) } }];"
+      },
+      "id": "ScoreEmergence",
+      "name": "Score Emergence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst clusterMap = safe($node['LLM Cluster Topics'].json).mapping || {};\nconst forecastNode = $node['Forecast Time Series (JS)'].json || {};\nconst causal = safe($node['LLM Causal Check'].json) || {};\nconst score = $node['Score Emergence'].json || {};\nconst trend = forecastNode.trend_label || 'stable';\nconst r2 = forecastNode.r2 || 0; const slope = forecastNode.slope || 0;\nconst record = {\n  skill: $json.skill,\n  topic_label: clusterMap[$json.skill] || null,\n  window_days: parseInt($node['Config'].json.WINDOW_DAYS||365,10),\n  forecast_horizon_days: parseInt($node['Config'].json.FORECAST_HORIZON_DAYS||90,10),\n  stats: $json.stats,\n  trend: { label: trend, r2, slope },\n  forecast: forecastNode.forecast || [],\n  causal: causal,\n  emergence: score,\n  accepted: (score.emergence_score||0) >= 0.6,\n  run_ts: new Date().toISOString()\n};\nreturn [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "trend_record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "skill", "fieldType": "string", "fieldValue": "={{$json['record'].skill}}" },
+              { "fieldName": "topic_label", "fieldType": "string", "fieldValue": "={{$json['record'].topic_label || ''}}" },
+              { "fieldName": "emergence_score", "fieldType": "number", "fieldValue": "={{$json['record'].emergence.emergence_score}}" },
+              { "fieldName": "accepted", "fieldType": "boolean", "fieldValue": "={{$json['record'].accepted}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "Trend {{ $json['record'].accepted ? '🚀 EMERGING' : 'ℹ️ observed' }}\\nSkill: {{ $json['record'].skill }} | Topic: {{ $json['record'].topic_label || '—' }}\\nTrend: {{ $json['record'].trend.label }} (R²={{ $json['record'].trend.r2 }}) | Emergence: {{ $json['record'].emergence.emergence_score }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Skill",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextSkill", "name": "Next Skill", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 }, { "node": "Fetch Job Postings (window)", "type": "main", "index": 0 }, { "node": "Fetch SkillsLex (optional)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
+
+    "Parse Controller Plan": { "main": [ [ { "node": "Build Time Series + Summary", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Job Postings (window)": { "main": [ [ { "node": "Build Time Series + Summary", "type": "main", "index": 0 } ] ] },
+
+    "Build Time Series + Summary": { "main": [ [ { "node": "Select Top Skills", "type": "main", "index": 0 } ] ] },
+
+    "Select Top Skills": { "main": [ [ { "node": "LLM Cluster Topics", "type": "main", "index": 0 }, { "node": "Split Skills", "type": "main", "index": 0 } ] ] },
+
+    "LLM Cluster Topics": { "main": [ [ { "node": "Split Skills", "type": "main", "index": 0 } ] ] },
+
+    "Split Skills": { "main": [ [ { "node": "Forecast Time Series (JS)", "type": "main", "index": 0 } ] ] },
+
+    "Forecast Time Series (JS)": { "main": [ [ { "node": "LLM Causal Check", "type": "main", "index": 0 } ] ] },
+
+    "LLM Causal Check": { "main": [ [ { "node": "Score Emergence", "type": "main", "index": 0 } ] ] },
+
+    "Score Emergence": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Skill", "type": "main", "index": 0 }, { "node": "Next Skill", "type": "main", "index": 0 } ] ] },
+
+    "Next Skill": { "main": [ [ { "node": "Split Skills", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous trend analysis: build skill time series from postings, forecast demand, cluster topics, run causal checks vs baseline, compute emergence score, send Discord FYIs, and emit JSON artifacts."
+  }
+}

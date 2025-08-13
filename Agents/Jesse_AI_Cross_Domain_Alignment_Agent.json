@@ -1,0 +1,209 @@
+{
+  "_comment": "Jesse — AI_Cross_Domain_Alignment_Agent.json",
+  "name": "Jesse — AI Cross-Domain Alignment Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "PROGRAMS_SOURCE_URL", "value": "https://api.example.com/jesse/programs" },
+            { "name": "CAREERS_SOURCE_URL", "value": "https://api.example.com/jesse/careers" },
+            { "name": "JOBS_SOURCE_URL", "value": "https://api.example.com/jesse/job_postings" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "MAX_PAIRS", "value": "40" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — Cross-Domain Alignment. Plan an autonomous run that: (1) selects program–career pairs to evaluate, (2) defines multi-objective weights (skills coverage, demand, salary, alignment confidence, gap penalty), (3) defines similarity/gap extraction prompts, (4) sets acceptance thresholds, and (5) specifies a recommendation style. Output JSON ONLY:\\n{\\n  \"pairing_policy\": {\"select\":\"cartesian-filtered\",\"filters\":[\"program.discipline ~ career.cluster\",\"region == input.region\"]},\\n  \"weights\": {\"skills_coverage\":0.35,\"demand\":0.25,\"salary\":0.15,\"alignment_confidence\":0.15,\"gap_penalty\":0.10},\\n  \"thresholds\": {\"min_alignment\":0.62,\"min_confidence\":0.70},\\n  \"similarity_prompt\": \"compare program outcomes vs. job skills; return coverage, gaps, similarity 0..1\",\\n  \"gap_attention_prompt\": \"identify critical missing skills with brief rationale\",\\n  \"recommendation_style\": \"concise, actionable curriculum deltas with course-level suggestions\"\\n}",
+        "messages": [
+          { "text": "Region: {{$node['Config'].json.REGION}} | Language: {{$node['Config'].json.LANGUAGE}} | Max Pairs: {{$node['Config'].json.MAX_PAIRS}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": { "functionCode": "let plan; try{plan=JSON.parse(items[0].json.data||items[0].json||'{}')}catch{plan=items[0].json}; return [{json: plan}];" },
+      "id": "ParsePlan",
+      "name": "Parse Controller Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "url": "={{$node['Config'].json.PROGRAMS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrograms", "name": "Fetch Programs", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.CAREERS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchCareers", "name": "Fetch Careers", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.JOBS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchJobs", "name": "Fetch Job Postings", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    {
+      "parameters": {
+        "functionCode": "function arr(x){if(!x)return[];if(Array.isArray(x))return x; if(x.data){try{return JSON.parse(x.data)}catch{}} return x.items||x.results||x;}\nconst max=parseInt($node['Config'].json.MAX_PAIRS||40,10);\nconst region=$node['Config'].json.REGION;\nconst programs=arr($node['Fetch Programs'].json).filter(p=>p);\nconst careers=arr($node['Fetch Careers'].json).filter(c=>c);\n// Simple filter: discipline/cluster soft match and region if present\nconst pairs=[];\nfor(const p of programs){for(const c of careers){const pd=(p.discipline||'').toLowerCase();const cd=(c.cluster||c.title||'').toLowerCase(); if(pd && cd && (pd.includes(cd.split(' ')[0]) || cd.includes(pd.split(' ')[0]))){pairs.push({program:p, career:c});}}}\nconst limited=pairs.slice(0,max);\nreturn limited.map(x=>({json:x}));"
+      },
+      "id": "BuildPairs",
+      "name": "Build Program–Career Pairs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "batchSize": 1 }, "id": "SplitPairs", "name": "Split Pairs", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Neural similarity + attention-based gap analysis. Compare program {learning_outcomes, competencies, topics} to job {skills} for the target career cluster. Output STRICT JSON: {\"similarity\":0..1, \"coverage\": {\"matched_skills\":[], \"coverage_rate\":0..1}, \"gaps\": [{\"skill\":\"\",\"why_critical\":\"\"}], \"confidence\":0..1 }",
+        "messages": [
+          {
+            "text": "Similarity prompt: {{$node['Parse Controller Plan'].json.similarity_prompt}}\\nGap prompt: {{$node['Parse Controller Plan'].json.gap_attention_prompt}}\\n\\nProgram: {{$json['program']}}\\nCareer: {{$json['career']}}\\nRelevant job postings (sample): {{ ($node['Fetch Job Postings'].json.items || $node['Fetch Job Postings'].json.results || []).slice(0,25) }}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMSimilarity",
+      "name": "LLM Similarity & Gaps",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst s = safe($node['LLM Similarity & Gaps'].json)||{};\nconst weights = $node['Parse Controller Plan'].json.weights || {skills_coverage:0.35,demand:0.25,salary:0.15,alignment_confidence:0.15,gap_penalty:0.10};\n// crude demand/salary proxies from job postings\nconst jobs = ($node['Fetch Job Postings'].json.items||$node['Fetch Job Postings'].json.results||[]);\nconst demandScore = Math.min(1, (jobs.length||1) / 100.0); // scale by 100 postings\nconst salaryEst = (jobs.find(j=>j.salary_estimate)||{}).salary_estimate || null;\nlet salaryScore = 0.5; if (salaryEst){ const v = parseFloat(String(salaryEst).replace(/[^0-9.]/g,'')); salaryScore = isFinite(v)? Math.max(0, Math.min(1, (v-60000)/120000)) : 0.5; }\nconst coverageRate = s.coverage?.coverage_rate ?? 0;\nconst conf = s.confidence ?? 0;\nconst gapPenalty = Math.min(1, (s.gaps?.length||0)/12);\nconst objective = (weights.skills_coverage*coverageRate) + (weights.demand*demandScore) + (weights.salary*salaryScore) + (weights.alignment_confidence*conf) - (weights.gap_penalty*gapPenalty);\nreturn [{ json: { similarity:s.similarity??0, coverage_rate:coverageRate, demand_score:demandScore, salary_score:salaryScore, confidence:conf, gap_penalty:gapPenalty, objective: Number(objective.toFixed(4)), matched_skills: s.coverage?.matched_skills||[], gaps: s.gaps||[] } }];"
+      },
+      "id": "ScoreMO",
+      "name": "Score Multi-Objective",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Generate curriculum enhancement recommendations to close critical gaps while respecting program identity and credit limits. Provide (a) suggested modules or course deltas, (b) prerequisite bridges, (c) capstone/project ideas aligned to the target career. Output STRICT JSON: {\"recommendations\": [{\"type\":\"module|course|project\",\"title\":\"\",\"summary\":\"\",\"target_skills\":[] }], \"rationale\": [] }",
+        "messages": [
+          {
+            "text": "Recommendation style: {{$node['Parse Controller Plan'].json.recommendation_style}}\\nProgram: {{$node['Split Pairs'].json.program}}\\nCareer: {{$node['Split Pairs'].json.career}}\\nMatched skills: {{$node['Score Multi-Objective'].json.matched_skills}}\\nGaps: {{$node['Score Multi-Objective'].json.gaps}}"
+          }
+        ],
+        "options": { "temperature": 0.15 }
+      },
+      "id": "LLMRecommend",
+      "name": "LLM Curriculum Recommendations",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst thresholds = $node['Parse Controller Plan'].json.thresholds || {min_alignment:0.62,min_confidence:0.70};\nconst prog = $node['Split Pairs'].json.program || {};\nconst car = $node['Split Pairs'].json.career || {};\nconst mo = $node['Score Multi-Objective'].json || {};\nconst rec = safe($node['LLM Curriculum Recommendations'].json)||{};\nconst ok = (mo.objective >= thresholds.min_alignment) && (mo.confidence >= thresholds.min_confidence);\nconst record = {\n  program_id: prog.id || prog.code || null,\n  program_title: prog.title || null,\n  career_id: car.id || null,\n  career_title: car.title || car.cluster || null,\n  region: $node['Config'].json.REGION,\n  similarity: mo.similarity,\n  coverage_rate: mo.coverage_rate,\n  demand_score: mo.demand_score,\n  salary_score: mo.salary_score,\n  alignment_confidence: mo.confidence,\n  gap_penalty: mo.gap_penalty,\n  objective_score: mo.objective,\n  matched_skills: mo.matched_skills,\n  gaps: mo.gaps,\n  recommendations: rec.recommendations || [],\n  recommendation_rationale: rec.rationale || [],\n  accepted: ok,\n  thresholds,\n  run_ts: new Date().toISOString()\n};\nreturn [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "program_id", "fieldType": "string", "fieldValue": "={{$json['record'].program_id || ''}}" },
+              { "fieldName": "career_id", "fieldType": "string", "fieldValue": "={{$json['record'].career_id || ''}}" },
+              { "fieldName": "objective_score", "fieldType": "number", "fieldValue": "={{$json['record'].objective_score}}" },
+              { "fieldName": "accepted", "fieldType": "boolean", "fieldValue": "={{$json['record'].accepted}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "Alignment {{ $json['record'].accepted ? '(ACCEPTED)' : '(REVIEW SUGGESTED)' }}\\nProgram: {{ $json['record'].program_title || $json['record'].program_id }}\\nCareer: {{ $json['record'].career_title || $json['record'].career_id }}\\nScore: {{ $json['record'].objective_score }} | Conf: {{ $json['record'].alignment_confidence }}\\nTop gaps: {{ ($json['record'].gaps||[]).slice(0,3).map(g=>g.skill).join(', ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Alignment",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextPair", "name": "Next Pair", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 }, { "node": "Fetch Programs", "type": "main", "index": 0 }, { "node": "Fetch Careers", "type": "main", "index": 0 }, { "node": "Fetch Job Postings", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
+
+    "Parse Controller Plan": { "main": [ [ { "node": "Build Program–Career Pairs", "type": "main", "index": 0 } ] ] },
+
+    "Build Program–Career Pairs": { "main": [ [ { "node": "Split Pairs", "type": "main", "index": 0 } ] ] },
+
+    "Split Pairs": { "main": [ [ { "node": "LLM Similarity & Gaps", "type": "main", "index": 0 } ] ] },
+
+    "LLM Similarity & Gaps": { "main": [ [ { "node": "Score Multi-Objective", "type": "main", "index": 0 } ] ] },
+
+    "Score Multi-Objective": { "main": [ [ { "node": "LLM Curriculum Recommendations", "type": "main", "index": 0 } ] ] },
+
+    "LLM Curriculum Recommendations": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Alignment", "type": "main", "index": 0 }, { "node": "Next Pair", "type": "main", "index": 0 } ] ] },
+
+    "Next Pair": { "main": [ [ { "node": "Split Pairs", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous cross-domain alignment: multi-objective matching of programs to careers, neural similarity + attention gaps via LLM, curriculum recommendations, non-blocking Discord FYIs, and JSON outputs."
+  }
+}
+

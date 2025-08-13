@@ -1,0 +1,306 @@
+{
+  "_comment": "Jesse — AI_Syllabi_Analysis_Agent.json",
+  "name": "Jesse — AI Syllabi Analysis Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "SEED_SYLLABI", "value": "https://example.edu/course/cs101/syllabus.pdf; https://another.edu/ai/ai101_syllabus.pdf" },
+            { "name": "SEED_QUERIES", "value": "site:.edu syllabus data science pdf; site:.edu \"machine learning\" syllabus filetype:pdf" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "MAX_NEW_SOURCES", "value": "10" },
+            { "name": "SEARCH_API_BASE", "value": "https://api.example.com/search" },
+            { "name": "DOC_PARSER_URL", "value": "https://api.example.com/parse-doc" },
+            { "name": "DOC_PARSER_KEY", "value": "{{$env.DOC_PARSER_KEY || ''}}" },
+            { "name": "SKILLS_TAXONOMY_URL", "value": "https://api.example.com/skills-lex/taxonomy" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": { "schemaType": "define", "fields": [ { "fieldName": "distilled_rules", "type": "string" } ] }
+      },
+      "id": "LoadDistilled",
+      "name": "Load Distilled Rules (optional)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.SKILLS_TAXONOMY_URL}}",
+        "authentication": "none",
+        "ignoreResponseCode": true
+      },
+      "id": "FetchTaxonomy",
+      "name": "Fetch Skills Taxonomy (optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — AI Syllabi Analysis Agent. Plan an autonomous run that (1) discovers syllabus sources (if needed), (2) specifies parsing preferences for PDFs/images (OCR+layout), (3) defines zero-shot competency & learning-outcome extraction, (4) aligns extracted items to a skills taxonomy when available, (5) emits a final JSON record per syllabus. Output JSON ONLY:\\n{\\n  \"search_queries\": [\"...\"],\\n  \"crawl_budget\": 30,\\n  \"priority_rules\": [\"prefer official .edu domains\", \"prefer PDFs with ToC or headings\"],\\n  \"extraction_instructions\": {\\n    \"target_fields\": [\"course_code\",\"course_title\",\"term\",\"instructor\",\"program\",\"learning_outcomes\",\"competencies\",\"topics\",\"readings\",\"assessments\",\"modality\",\"workload\",\"tools\"],\\n    \"zero_shot_policy\": \"treat unfamiliar outcome phrasings as novel competencies; extract anyway\",\\n    \"few_shots\": [\\n      {\"text\":\"Learning Outcomes: Students will be able to implement supervised ML algorithms and evaluate models.\",\"output\":{\"learning_outcomes\":[\"implement supervised ML algorithms\",\"evaluate models\"],\"competencies\":[\"model implementation\",\"model evaluation\"]}},\\n      {\"text\":\"By the end, learners can articulate ethical implications of AI in healthcare.\",\"output\":{\"learning_outcomes\":[\"articulate ethical implications of AI in healthcare\"],\"competencies\":[\"AI ethics in healthcare\"]}}\\n    ]\\n  },\\n  \"alignment_policy\": {\"strategy\":\"semantic-match-to-taxonomy-if-available\",\"accept_threshold\":0.65},\\n  \"distillation_policy\": {\"emit_keywords\":true,\"emit_patterns\":true}\\n}",
+        "messages": [
+          { "text": "Seeds (syllabi URLs): {{$node['Config'].json.SEED_SYLLABI}}\\nSeeds (queries): {{$node['Config'].json.SEED_QUERIES}}\\nLanguage: {{$node['Config'].json.LANGUAGE}} | Region: {{$node['Config'].json.REGION}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "let plan; try { plan = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e) { plan = items[0].json; }\nreturn [{ json: plan }];"
+      },
+      "id": "ParsePlan",
+      "name": "Parse Controller Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const urls = String($node['Config'].json.SEED_SYLLABI || '').split(';').map(s=>s.trim()).filter(Boolean);\nconst queries = Array.isArray($node['ParsePlan'].json.search_queries) ? $node['ParsePlan'].json.search_queries : [];\nconst max = parseInt($node['Config'].json.MAX_NEW_SOURCES || 10, 10);\nreturn [{ json: { seedUrls: urls, queries: queries.slice(0, max) } }];"
+      },
+      "id": "BuildSourceList",
+      "name": "Build Source List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.SEARCH_API_BASE}}",
+        "authentication": "none",
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "q", "value": "={{$json['query']}}" },
+            { "name": "hl", "value": "={{$node['Config'].json.LANGUAGE}}" },
+            { "name": "gl", "value": "={{$node['Config'].json.REGION}}" },
+            { "name": "count", "value": "10" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "SearchHTTP",
+      "name": "Web Search (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const fromSeeds = ($node['BuildSourceList'].json.seedUrls || []).map(u => ({ url: u }));\nconst fromSearch = (items[0].json.results || items[0].json.items || []).map(r => ({ url: r.link || r.url })).filter(o=>o.url && /\\.(pdf|docx?|html)$/i.test(o.url));\nconst merged = [...fromSeeds, ...fromSearch].slice(0, parseInt($node['Config'].json.MAX_NEW_SOURCES || 10, 10));\nreturn merged.map(x=>({ json: x }));"
+      },
+      "id": "MergeSources",
+      "name": "Merge Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "batchSize": 1 }, "id": "SplitSources", "name": "Split Sources", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.DOC_PARSER_URL}}",
+        "authentication": "none",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={\"url\":\"{{$json['url']}}\",\"options\":{\"ocr\":true,\"layout\":true,\"language\":\"{{$node['Config'].json.LANGUAGE}}\"}}",
+        "headerParametersUi": { "parameter": [ { "name": "Authorization", "value": "Bearer {{$node['Config'].json.DOC_PARSER_KEY}}" } ] },
+        "ignoreResponseCode": true
+      },
+      "id": "ParseDoc",
+      "name": "Parse Document (OCR+Layout API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Extract zero-shot learning outcomes, competencies, topics, readings, assessments from raw syllabus text+layout. Output STRICT JSON: {\"course_code\", \"course_title\", \"term\", \"instructor\", \"program\", \"modality\", \"workload\", \"tools\":[], \"learning_outcomes\":[], \"competencies\":[], \"topics\":[], \"readings\":[], \"assessments\":[], \"source_url\", \"soft_confidence\":0..1, \"reasons\":[] }",
+        "messages": [
+          { "text": "Extraction instructions:\\n{{$node['ParsePlan'].json.extraction_instructions}}\\n\\nDistilled rules (optional):\\n{{$node['Load Distilled Rules (optional)'].json.distilled_rules}}\\n\\nParsed Doc JSON (excerpted):\\n{{$json}}\\n\\nSource URL: {{$node['Split Sources'].json.url}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMExtract",
+      "name": "LLM Extract (Zero-shot)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Perform self-supervised alignment of extracted competencies/outcomes to a provided skills taxonomy (if any). Use semantic matching; accept if similarity >= alignment_policy.accept_threshold. Output STRICT JSON: {\"mapped_skills\": [{\"skill\":\"...\",\"confidence\":0..1}], \"unmapped_phrases\":[], \"alignment_notes\":[] }",
+        "messages": [
+          { "text": "Alignment policy:\\n{{$node['Parse Controller Plan'].json.alignment_policy}}\\n\\nExtracted record:\\n{{$node['LLM Extract (Zero-shot)'].json.data || $node['LLM Extract (Zero-shot)'].json}}\\n\\nSkills taxonomy (optional JSON):\\n{{$node['Fetch Skills Taxonomy (optional)'].json}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMAlign",
+      "name": "LLM Align to Skills",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safeParse(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst rec = safeParse($node['LLM Extract (Zero-shot)'].json)||{};\nconst align = safeParse($node['LLM Align to Skills'].json)||{};\nconst th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD || 0.70);\nconst ok = (rec.soft_confidence ?? 0) >= th && Array.isArray(rec.learning_outcomes) && rec.learning_outcomes.length>0;\nconst record = {\n  course_code: rec.course_code||null,\n  course_title: rec.course_title||null,\n  term: rec.term||null,\n  instructor: rec.instructor||null,\n  program: rec.program||null,\n  modality: rec.modality||null,\n  workload: rec.workload||null,\n  tools: rec.tools||[],\n  learning_outcomes: rec.learning_outcomes||[],\n  competencies: rec.competencies||[],\n  topics: rec.topics||[],\n  readings: rec.readings||[],\n  assessments: rec.assessments||[],\n  mapped_skills: align.mapped_skills||[],\n  unmapped_phrases: align.unmapped_phrases||[],\n  alignment_notes: align.alignment_notes||[],\n  source_url: rec.source_url || $node['Split Sources'].json.url || null,\n  soft_confidence: rec.soft_confidence ?? 0,\n  needs_review: !ok,\n  reasons: (rec.reasons||[]).concat(ok?[]:['low-confidence']),\n  harvest_run_ts: new Date().toISOString()\n};\nreturn [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "source_url", "fieldType": "string", "fieldValue": "={{$json['record'].source_url || ''}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
+              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json['record'].needs_review}}" },
+              { "fieldName": "harvest_run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].harvest_run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Distill lightweight rules, keywords, and patterns suitable for edge/low-resource extraction. Output STRICT JSON: {\"rules\":[], \"keywords\":[], \"regexes\":[], \"notes\":[]}",
+        "messages": [
+          { "text": "Examples (extracted):\\n{{$json['record']}}\\n\\nExisting distilled rules (optional):\\n{{$node['Load Distilled Rules (optional)'].json.distilled_rules}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMDistill",
+      "name": "LLM Distill (Edge Rules)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "distilled_rules", "fieldType": "string", "fieldValue": "={{JSON.stringify($json)}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDistilled",
+      "name": "Save Distilled Rules",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "Syllabus processed ({{ $node['Build JSON Record'].json.record.needs_review ? \"needs_review\" : \"ok\" }})\\nCourse: {{ $node['Build JSON Record'].json.record.course_title || 'N/A' }}\\nConfidence: {{ $node['Build JSON Record'].json.record.soft_confidence }}\\nURL: {{ $node['Build JSON Record'].json.record.source_url }}\\nMapped skills: {{ ($node['Build JSON Record'].json.record.mapped_skills || []).slice(0,8).map(x=>x.skill).join(', ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Record",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextSource", "name": "Next Source", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+  ],
+
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "Load Distilled Rules (optional)", "type": "main", "index": 0 }, { "node": "Fetch Skills Taxonomy (optional)", "type": "main", "index": 0 }, { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
+
+    "Parse Controller Plan": { "main": [ [ { "node": "Build Source List", "type": "main", "index": 0 } ] ] },
+
+    "Build Source List": { "main": [ [ { "node": "Web Search (HTTP)", "type": "main", "index": 0 }, { "node": "Merge Sources", "type": "main", "index": 0 } ] ] },
+
+    "Web Search (HTTP)": { "main": [ [ { "node": "Merge Sources", "type": "main", "index": 0 } ] ] },
+
+    "Merge Sources": { "main": [ [ { "node": "Split Sources", "type": "main", "index": 0 } ] ] },
+
+    "Split Sources": { "main": [ [ { "node": "Parse Document (OCR+Layout API)", "type": "main", "index": 0 } ] ] },
+
+    "Parse Document (OCR+Layout API)": { "main": [ [ { "node": "LLM Extract (Zero-shot)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Extract (Zero-shot)": { "main": [ [ { "node": "LLM Align to Skills", "type": "main", "index": 0 } ] ] },
+
+    "LLM Align to Skills": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "LLM Distill (Edge Rules)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Record", "type": "main", "index": 0 }, { "node": "Next Source", "type": "main", "index": 0 } ] ] },
+
+    "LLM Distill (Edge Rules)": { "main": [ [ { "node": "Save Distilled Rules", "type": "main", "index": 0 } ] ] },
+
+    "Next Source": { "main": [ [ { "node": "Split Sources", "type": "main", "index": 0 } ] ] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous syllabi analysis with OCR+NLP, zero-shot competency extraction, skills alignment, knowledge distillation for edge, and Discord FYIs. Emits JSON records for downstream pipelines."
+  }
+}

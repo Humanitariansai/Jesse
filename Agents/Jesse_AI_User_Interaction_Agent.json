@@ -1,0 +1,287 @@
+{
+  "_comment": "Jesse — AI_User_Interaction_Agent.json",
+  "name": "Jesse — AI User Interaction Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "WEBHOOK_PATH", "value": "project-jesse/user-query" },
+            { "name": "PROFILE_SOURCE_URL", "value": "https://api.example.com/jesse/profiles" },
+            { "name": "SKILLSLEX_SOURCE_URL", "value": "https://api.example.com/jesse/skillslex" },
+            { "name": "PROGRAMS_SOURCE_URL", "value": "https://api.example.com/jesse/programs" },
+            { "name": "CAREERS_SOURCE_URL", "value": "https://api.example.com/jesse/careers" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "SESSION_TTL_DAYS", "value": "30" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "path": "={{$node['Config'].json.WEBHOOK_PATH}}",
+        "options": { "responseData": "received", "responseCode": 200 }
+      },
+      "id": "WebhookIn",
+      "name": "Webhook: Receive Query",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const src = $json.body || $json || {}; const q = src.query_text || src.query || 'I want a career in data science; what degree and courses should I take?'; const student_id = src.student_id || 'demo-student-001'; const session_id = src.session_id || (student_id + '-' + Date.now()); const context = src.context || {}; return [{ json: { query_text: q, student_id, session_id, context } }];"
+      },
+      "id": "NormalizeInput",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": {
+          "schemaType": "define",
+          "fields": [
+            { "fieldName": "session_id", "type": "string" },
+            { "fieldName": "state_json", "type": "string" },
+            { "fieldName": "updated_ts", "type": "string" }
+          ]
+        }
+      },
+      "id": "LoadSession",
+      "name": "Load Session State (optional)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const sid = $node['Normalize Input'].json.session_id; let latest=null; for (const it of items){ const j=it.json||{}; if(j.session_id===sid){ if(!latest || (new Date(j.updated_ts||0) > new Date(latest.updated_ts||0))) latest=j; } } const state = latest && latest.state_json ? JSON.parse(latest.state_json) : { history: [] }; return [{ json: { session_state: state } }];"
+      },
+      "id": "PickSession",
+      "name": "Pick Session State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.PROFILE_SOURCE_URL}}",
+        "authentication": "none",
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "student_id", "value": "={{$node['Normalize Input'].json.student_id}}" }
+          ]
+        },
+        "ignoreResponseCode": true
+      },
+      "id": "FetchProfile",
+      "name": "Fetch Student Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    { "parameters": { "url": "={{$node['Config'].json.SKILLSLEX_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSkillsLex", "name": "Fetch SkillsLex", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.PROGRAMS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrograms", "name": "Fetch Programs", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.CAREERS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchCareers", "name": "Fetch Careers", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the NLU for Project Jesse. Given a student query, extract intent, slots, entities, and constraints. Output STRICT JSON: {\"intent\":\"career_guidance|course_recommendation|program_fit|skills_gap_analysis|path_planning|other\", \"entities\":{\"skills\":[],\"interests\":[],\"locations\":[],\"industries\":[],\"titles\":[]}, \"constraints\":{\"budget\":null,\"time_horizon\":null,\"modality\":null}, \"clarifying_questions\":[], \"soft_confidence\":0..1 }",
+        "messages": [
+          { "text": "Query: {{$node['Normalize Input'].json.query_text}}\\nSession summary: {{$node['Pick Session State'].json.session_state && $node['Pick Session State'].json.session_state.summary || ''}}\\nLanguage: {{$node['Config'].json.LANGUAGE}} | Region: {{$node['Config'].json.REGION}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLM_NLU",
+      "name": "LLM NLU (Intent + Slots)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the Recommender for Project Jesse. Using the NLU result, profile, and catalogs, produce personalized recommendations. Output STRICT JSON: {\"recommendations\": {\"careers\": [{\"title\":\"\",\"why\":\"\",\"confidence\":0..1}], \"programs\": [{\"id\":\"\",\"title\":\"\",\"why\":\"\",\"confidence\":0..1}], \"courses\": [{\"id\":\"\",\"title\":\"\",\"why\":\"\",\"confidence\":0..1}], \"skills_to_build\": [\"\"], \"pathway\": [{\"step\":\"\",\"target\":\"\",\"reason\":\"\"}] }, \"soft_confidence\":0..1 }",
+        "messages": [
+          {
+            "text": "NLU: {{$node['LLM NLU (Intent + Slots)'].json.data || $node['LLM NLU (Intent + Slots)'].json}}\\nProfile: {{$node['Fetch Student Profile'].json}}\\nSkillsLex (subset): {{ ($node['Fetch SkillsLex'].json.items || $node['Fetch SkillsLex'].json.results || $node['Fetch SkillsLex'].json).slice ? ($node['Fetch SkillsLex'].json.items || $node['Fetch SkillsLex'].json.results || []).slice(0,200) : $node['Fetch SkillsLex'].json }}\\nPrograms (subset): {{ ($node['Fetch Programs'].json.items || $node['Fetch Programs'].json.results || $node['Fetch Programs'].json).slice ? ($node['Fetch Programs'].json.items || $node['Fetch Programs'].json.results || []).slice(0,200) : $node['Fetch Programs'].json }}\\nCareers (subset): {{ ($node['Fetch Careers'].json.items || $node['Fetch Careers'].json.results || $node['Fetch Careers'].json).slice ? ($node['Fetch Careers'].json.items || $node['Fetch Careers'].json.results || []).slice(0,200) : $node['Fetch Careers'].json }}"
+          }
+        ],
+        "options": { "temperature": 0.15 }
+      },
+      "id": "LLM_Recs",
+      "name": "LLM Recommender (Personalized)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Produce transparent justification for each recommendation. Output STRICT JSON: {\"explanations\": {\"careers\": [{\"title\":\"\",\"evidence\": [\"\"], \"alignment\": {\"skills_match\":[], \"gaps\":[]}}], \"programs\": [{\"id\":\"\",\"title\":\"\",\"evidence\": [\"\"], \"alignment\": {\"skills_match\":[], \"gaps\":[]}}], \"courses\": [{\"id\":\"\",\"title\":\"\",\"evidence\": [\"\"], \"alignment\": {\"skills_match\":[], \"gaps\":[]}}] }, \"global_rationale\": [] }",
+        "messages": [
+          { "text": "Query: {{$node['Normalize Input'].json.query_text}}\\nProfile: {{$node['Fetch Student Profile'].json}}\\nRecommendations: {{$node['LLM Recommender (Personalized)'].json.data || $node['LLM Recommender (Personalized)'].json}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLM_Explain",
+      "name": "LLM Explain (XAI)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Dialogue manager. Update session state and propose next questions to advance exploration. Output STRICT JSON: {\"state_update\": {\"summary\":\"\",\"last_intent\":\"\",\"recent_entities\":[]}, \"next_questions\": [\"\"], \"short_reply\": \"\" }",
+        "messages": [
+          {
+            "text": "Previous state: {{$node['Pick Session State'].json.session_state}}\\nQuery: {{$node['Normalize Input'].json.query_text}}\\nNLU: {{$node['LLM NLU (Intent + Slots)'].json.data || $node['LLM NLU (Intent + Slots)'].json}}\\nRecommendations: {{$node['LLM Recommender (Personalized)'].json.data || $node['LLM Recommender (Personalized)'].json}}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLM_Dialogue",
+      "name": "LLM Dialogue Manager",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst nlu = safe($node['LLM NLU (Intent + Slots)'].json)||{};\nconst recs = safe($node['LLM Recommender (Personalized)'].json)||{};\nconst xai = safe($node['LLM Explain (XAI)'].json)||{};\nconst dm = safe($node['LLM Dialogue Manager'].json)||{};\nconst profile = $node['Fetch Student Profile'].json || {};\nconst threshold = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD||0.70);\nconst c1 = Number(nlu.soft_confidence||0);\nconst c2 = Number(recs.soft_confidence||0);\nconst soft_confidence = Number(((c1 + c2)/2 || 0).toFixed(3));\nconst needs_review = soft_confidence < threshold;\nconst record = {\n  session_id: $node['Normalize Input'].json.session_id,\n  student_id: $node['Normalize Input'].json.student_id,\n  query_text: $node['Normalize Input'].json.query_text,\n  nlu, profile_summary: profile, recommendations: recs.recommendations || recs,\n  explanations: xai.explanations || xai, dialogue: dm, soft_confidence, needs_review,\n  region: $node['Config'].json.REGION, language: $node['Config'].json.LANGUAGE,\n  run_ts: new Date().toISOString()\n};\nreturn [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "interaction_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "session_id", "fieldType": "string", "fieldValue": "={{$json['record'].session_id}}" },
+              { "fieldName": "student_id", "fieldType": "string", "fieldValue": "={{$json['record'].student_id}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
+              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json['record'].needs_review}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveInteraction",
+      "name": "Save Interaction (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "session_id", "fieldType": "string", "fieldValue": "={{$json['record'].session_id}}" },
+              { "fieldName": "state_json", "fieldType": "string", "fieldValue": "={{JSON.stringify(($json['record'].dialogue && $json['record'].dialogue.state_update) ? $json['record'].dialogue.state_update : { summary: '', last_intent: '', recent_entities: [] })}}" },
+              { "fieldName": "updated_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveSession",
+      "name": "Save Session State",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "User interaction {{ $json['record'].needs_review ? '⚠️ needs_review' : '✅ ok' }}\\nStudent: {{ $json['record'].student_id }}\\nIntent: {{ ($json['record'].nlu && $json['record'].nlu.intent) || 'n/a' }} | Conf: {{ $json['record'].soft_confidence }}\\nTop career: {{ ($json['record'].recommendations && $json['record'].recommendations.careers && $json['record'].recommendations.careers[0] && $json['record'].recommendations.careers[0].title) || '—' }}\\nTop program: {{ ($json['record'].recommendations && $json['record'].recommendations.programs && $json['record'].recommendations.programs[0] && $json['record'].recommendations.programs[0].title) || '—' }}\\nNext Qs: {{ ($json['record'].dialogue && $json['record'].dialogue.next_questions || []).slice(0,2).join(' | ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Interaction",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Webhook: Receive Query": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "Normalize Input", "type": "main", "index": 0 } ] ] },
+
+    "Normalize Input": { "main": [ [ { "node": "Load Session State (optional)", "type": "main", "index": 0 } ] ] },
+
+    "Load Session State (optional)": { "main": [ [ { "node": "Pick Session State", "type": "main", "index": 0 } ] ] },
+
+    "Pick Session State": { "main": [ [ { "node": "Fetch Student Profile", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Student Profile": { "main": [ [ { "node": "Fetch SkillsLex", "type": "main", "index": 0 } ] ] },
+
+    "Fetch SkillsLex": { "main": [ [ { "node": "Fetch Programs", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Programs": { "main": [ [ { "node": "Fetch Careers", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Careers": { "main": [ [ { "node": "LLM NLU (Intent + Slots)", "type": "main", "index": 0 } ] ] },
+
+    "LLM NLU (Intent + Slots)": { "main": [ [ { "node": "LLM Recommender (Personalized)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Recommender (Personalized)": { "main": [ [ { "node": "LLM Explain (XAI)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Explain (XAI)": { "main": [ [ { "node": "LLM Dialogue Manager", "type": "main", "index": 0 } ] ] },
+
+    "LLM Dialogue Manager": { "main": [ [ { "node": "Build JSON Response", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Response": { "main": [ [ { "node": "Save Interaction (JSON)", "type": "main", "index": 0 }, { "node": "Save Session State", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Interaction", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous user interaction agent: intent recognition, personalized recommendations, explainable justifications, and dialogue management. Non-blocking Discord notifications and JSON artifacts for downstream tools."
+  }
+}

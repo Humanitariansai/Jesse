@@ -1,0 +1,271 @@
+{
+  "_comment": "Jesse — AI_SkillsLex_Enrichment_Agent.json",
+  "name": "Jesse — AI SkillsLex Enrichment Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "SEED_SKILLS", "value": "Python; SQL; Kubernetes; Prompt Engineering; Transfer Learning" },
+            { "name": "DOMAIN_HINTS", "value": "data engineering; ml ops; applied nlp; computer vision" },
+            { "name": "MAX_SKILLS_PER_RUN", "value": "25" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "TAXONOMY_URL", "value": "https://api.example.com/skills-lex/taxonomy" },
+            { "name": "KG_SNAPSHOT_URL", "value": "https://api.example.com/skills-lex/kg-snapshot" },
+            { "name": "FEEDBACK_WEBHOOK_PATH", "value": "project-jesse/skillslex-feedback" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": { "schemaType": "define", "fields": [ { "fieldName": "few_shot_memory", "type": "string" } ] }
+      },
+      "id": "LoadMemory",
+      "name": "Load Few-Shot Memory (optional)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": { "url": "={{$node['Config'].json.TAXONOMY_URL}}", "authentication": "none", "ignoreResponseCode": true },
+      "id": "FetchTaxonomy",
+      "name": "Fetch Skills Taxonomy (optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": { "url": "={{$node['Config'].json.KG_SNAPSHOT_URL}}", "authentication": "none", "ignoreResponseCode": true },
+      "id": "FetchKG",
+      "name": "Fetch KG Snapshot (optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — SkillsLex Enrichment. Plan an autonomous run to: (1) select/expand skill seeds, (2) generate comprehensive lexical entries (definition, classification, synonymy, hypernymy, hyponymy, meronymy, holonymy, verb-relations, antonymy, relational adjectives), (3) adapt with few-shot examples to new domains, (4) propose knowledge-graph completion edges, (5) compute confidence and quality notes. Output JSON ONLY:\\n{\\n  \"skills\": [\"...\"],\\n  \"generation_guidelines\": {\"style\":\"employment-context\",\"fields\":[\"definition\",\"classification\",\"synonyms\",\"hypernyms\",\"hyponyms\",\"meronyms\",\"holonyms\",\"verb_relations\",\"antonyms\",\"relational_adjectives\"],\"constraints\":[\"concise\",\"unambiguous\",\"evidence-based\"]},\\n  \"few_shots\": [ {\"skill\":\"vector database\",\"entry\":{\"definition\":\"...\",\"classification\":\"data management\",\"synonyms\":[\"vector store\"],\"hypernyms\":[\"database\"],\"hyponyms\":[\"FAISS\",\"Pinecone\"],\"meronyms\":[],\"holonyms\":[],\"verb_relations\":[\"index\",\"embed\",\"retrieve\"],\"antonyms\":[],\"relational_adjectives\":[\"vector\",\"semantic\"]} } ],\\n  \"kg_completion_policy\": {\"accept_threshold\":0.65,\"edge_types\":[\"related_to\",\"requires\",\"enables\",\"contrasts_with\",\"part_of\",\"has_part\"]}\\n}",
+        "messages": [
+          {
+            "text": "Seed skills: {{$node['Config'].json.SEED_SKILLS}}\\nDomain hints: {{$node['Config'].json.DOMAIN_HINTS}}\\nIf few-shot memory exists, incorporate it: {{$node['Load Few-Shot Memory (optional)'].json.few_shot_memory}}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": { "functionCode": "let plan; try { plan = JSON.parse(items[0].json.data || items[0].json || '{}'); } catch(e){ plan = items[0].json; } const list = Array.isArray(plan.skills)? plan.skills: []; const max = parseInt($node['Config'].json.MAX_SKILLS_PER_RUN||25,10); return list.slice(0,max).map(s=>({json:{skill:s, plan}}));" },
+      "id": "SplitSkills",
+      "name": "Split Skills",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Generate a comprehensive SkillsLex lexical entry for the provided skill in employment context. Output STRICT JSON with this schema: {\"skill\":\"\",\"entry\": {\"definition\":\"\",\"classification\":\"\",\"synonyms\":[],\"hypernyms\":[],\"hyponyms\":[],\"meronyms\":[],\"holonyms\":[],\"verb_relations\":[],\"antonyms\":[],\"relational_adjectives\":[]}, \"soft_confidence\":0..1, \"quality_notes\":[] }",
+        "messages": [
+          {
+            "text": "Skill: {{$json['skill']}}\\nGuidelines: {{$json['plan'].generation_guidelines}}\\nFew-shots: {{$json['plan'].few_shots}}\\nTaxonomy (optional): {{$node['Fetch Skills Taxonomy (optional)'].json}}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMGenerateEntry",
+      "name": "LLM Generate Entry",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Propose knowledge graph completion edges for the skill. Consider taxonomy and existing KG snapshot. Output STRICT JSON: {\"nodes\": [{\"id\":\"\",\"label\":\"skill\"}], \"edges\": [{\"source\":\"\",\"target\":\"\",\"type\":\"related_to|requires|enables|contrasts_with|part_of|has_part\",\"confidence\":0..1}], \"rationale\": [] }",
+        "messages": [
+          {
+            "text": "Skill & entry: {{$node['LLM Generate Entry'].json.data || $node['LLM Generate Entry'].json}}\\nKG policy: {{$json['plan'].kg_completion_policy}}\\nExisting KG snapshot (optional): {{$node['Fetch KG Snapshot (optional)'].json}}"
+          }
+        ],
+        "options": { "temperature": 0.15 }
+      },
+      "id": "LLMKGCompletion",
+      "name": "LLM KG Completion",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}} const entry = safe($node['LLM Generate Entry'].json)||{}; const kg = safe($node['LLM KG Completion'].json)||{}; const th = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD||0.70); const ok = (entry.soft_confidence??0) >= th && entry.entry && entry.entry.definition; const record = { skill: entry.skill||$json.skill, entry: entry.entry||{}, soft_confidence: entry.soft_confidence??0, quality_notes: entry.quality_notes||[], kg_nodes: kg.nodes||[], kg_edges: kg.edges||[], kg_rationale: kg.rationale||[], needs_review: !ok, reasons: ok?[]:['low-confidence'], run_ts: new Date().toISOString() }; return [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "skill", "fieldType": "string", "fieldValue": "={{$json['record'].skill}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
+              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json['record'].needs_review}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "SkillsLex entry {{ $json['record'].needs_review ? '(needs_review)' : '(ok)' }}\\nSkill: {{ $json['record'].skill }}\\nConfidence: {{ $json['record'].soft_confidence }}\\nSynonyms: {{ ($json['record'].entry.synonyms || []).slice(0,6).join(', ') }}\\nEdges: {{ ($json['record'].kg_edges || []).slice(0,4).map(e=>e.type+': '+e.source+'→'+e.target).join(' | ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Entry",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextSkill", "name": "Next Skill", "type": "n8n-nodes-base.noOp", "typeVersion": 1 },
+
+    /* --- Optional Human Feedback -> RLHF memory update (non-blocking) --- */
+
+    {
+      "parameters": {
+        "path": "={{$node['Config'].json.FEEDBACK_WEBHOOK_PATH}}",
+        "options": { "responseData": "received", "responseCode": 200 }
+      },
+      "id": "FeedbackWebhook",
+      "name": "Webhook: Receive Feedback (optional)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Given prior few-shot memory and fresh human feedback, produce UPDATED few-shots and distilled guidance for future entries. Output STRICT JSON: {\"updated_few_shots\":[], \"distilled_guidelines\":\"\"}",
+        "messages": [
+          {
+            "text": "Current few-shot memory (optional): {{$node['Load Few-Shot Memory (optional)'].json.few_shot_memory}}\\nHuman feedback payload: {{$json}}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMUpdateMemory",
+      "name": "LLM: Update Few-Shot Memory",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "few_shot_memory", "fieldType": "string", "fieldValue": "={{JSON.stringify($json)}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveMemory",
+      "name": "Save Updated Memory",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "SkillsLex feedback ingested. Few-shot memory updated."
+      },
+      "id": "DiscordAck",
+      "name": "Discord: Feedback Ack",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "Load Few-Shot Memory (optional)", "type": "main", "index": 0 }, { "node": "Fetch Skills Taxonomy (optional)", "type": "main", "index": 0 }, { "node": "Fetch KG Snapshot (optional)", "type": "main", "index": 0 }, { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Split Skills", "type": "main", "index": 0 } ] ] },
+
+    "Split Skills": { "main": [ [ { "node": "LLM Generate Entry", "type": "main", "index": 0 } ] ] },
+
+    "LLM Generate Entry": { "main": [ [ { "node": "LLM KG Completion", "type": "main", "index": 0 } ] ] },
+
+    "LLM KG Completion": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Entry", "type": "main", "index": 0 }, { "node": "Next Skill", "type": "main", "index": 0 } ] ] },
+
+    "Next Skill": { "main": [ [ { "node": "Split Skills", "type": "main", "index": 0 } ] ] },
+
+    "Webhook: Receive Feedback (optional)": { "main": [ [ { "node": "LLM: Update Few-Shot Memory", "type": "main", "index": 0 } ] ] },
+
+    "LLM: Update Few-Shot Memory": { "main": [ [ { "node": "Save Updated Memory", "type": "main", "index": 0 }, { "node": "Discord: Feedback Ack", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous SkillsLex enrichment with generative entries, few-shot adaptation, KG completion, non-blocking Discord notifications, and optional RLHF via webhook."
+  }
+}

@@ -1,0 +1,349 @@
+{
+  "_comment": "Jesse — AI_Educational_Pathways_Agent.json",
+  "name": "Jesse — AI Educational Pathways Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "WEBHOOK_PATH", "value": "project-jesse/edu-pathways" },
+            { "name": "FEEDBACK_WEBHOOK_PATH", "value": "project-jesse/edu-pathways-feedback" },
+            { "name": "PROFILE_SOURCE_URL", "value": "https://api.example.com/jesse/profiles" },
+            { "name": "COURSES_SOURCE_URL", "value": "https://api.example.com/jesse/courses" },
+            { "name": "PREREQS_SOURCE_URL", "value": "https://api.example.com/jesse/prereqs" },
+            { "name": "PROGRAMS_SOURCE_URL", "value": "https://api.example.com/jesse/programs" },
+            { "name": "CAREERS_SOURCE_URL", "value": "https://api.example.com/jesse/careers" },
+            { "name": "SKILLSLEX_SOURCE_URL", "value": "https://api.example.com/jesse/skillslex" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "K_CANDIDATES", "value": "10" },
+            { "name": "DEFAULT_CREDITS_PER_COURSE", "value": "3" },
+            { "name": "MAX_TERMS", "value": "8" },
+            { "name": "MAX_CREDITS_PER_TERM", "value": "15" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "path": "={{$node['Config'].json.WEBHOOK_PATH}}",
+        "options": { "responseData": "received", "responseCode": 200 }
+      },
+      "id": "WebhookIn",
+      "name": "Webhook: Receive Pathways Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const src = $json.body || $json || {}; const student_id = src.student_id || 'demo-student-001'; const session_id = src.session_id || (student_id + '-' + Date.now()); const career_goal = src.career_goal || 'data scientist'; const constraints = src.constraints || { max_terms: parseInt($node['Config'].json.MAX_TERMS||8,10), max_credits_per_term: parseInt($node['Config'].json.MAX_CREDITS_PER_TERM||15,10), modality: src.modality||'any', budget: src.budget||null, time_horizon_months: src.time_horizon_months||null }; const aptitudes = src.aptitudes || { math: 'avg', programming: 'avg', writing: 'avg' }; const preferences = src.preferences || { pace: 'balanced' }; return [{ json: { student_id, session_id, career_goal, constraints, aptitudes, preferences } }];"
+      },
+      "id": "NormalizeInput",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": { "schemaType": "define", "fields": [ { "fieldName": "policy_memory", "type": "string" }, { "fieldName": "updated_ts", "type": "string" } ] }
+      },
+      "id": "LoadPolicy",
+      "name": "Load Policy Memory (optional)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "functionCode": "let latest=null; for (const it of items){ const j=it.json||{}; if(!latest || (new Date(j.updated_ts||0) > new Date(latest.updated_ts||0))) latest=j; } const memory = latest && latest.policy_memory ? JSON.parse(latest.policy_memory) : {}; return [{ json: { policy_memory: memory } }];"
+      },
+      "id": "PickPolicy",
+      "name": "Pick Policy Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "url": "={{$node['Config'].json.PROFILE_SOURCE_URL}}", "authentication": "none", "queryParametersUi": { "parameter": [ { "name": "student_id", "value": "={{$node['Normalize Input'].json.student_id}}" } ] }, "ignoreResponseCode": true }, "id": "FetchProfile", "name": "Fetch Student Profile", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    { "parameters": { "url": "={{$node['Config'].json.CAREERS_SOURCE_URL}}", "authentication": "none", "queryParametersUi": { "parameter": [ { "name": "q", "value": "={{$node['Normalize Input'].json.career_goal}}" } ] }, "ignoreResponseCode": true }, "id": "FetchCareers", "name": "Fetch Career Target", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    { "parameters": { "url": "={{$node['Config'].json.PROGRAMS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrograms", "name": "Fetch Programs", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    { "parameters": { "url": "={{$node['Config'].json.COURSES_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchCourses", "name": "Fetch Courses", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    { "parameters": { "url": "={{$node['Config'].json.PREREQS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchPrereqs", "name": "Fetch Prerequisites", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    { "parameters": { "url": "={{$node['Config'].json.SKILLSLEX_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSkillsLex", "name": "Fetch SkillsLex (optional)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — Educational Pathways. Plan an autonomous run that: (1) defines multi-objective weights; (2) sets reinforcement-learning policy search params; (3) specifies candidate path generation constraints; (4) describes counterfactual exploration; (5) defines explainability outputs. Output JSON ONLY:\\n{\\n  \"objective_weights\": {\"career_alignment\":0.40,\"time_to_completion\":0.20,\"workload_balance\":0.15,\"cost\":0.15,\"prereq_risk\":0.10},\\n  \"constraints_defaults\": {\"max_terms\": {{$node['Normalize Input'].json.constraints.max_terms || 8}}, \"max_credits_per_term\": {{$node['Normalize Input'].json.constraints.max_credits_per_term || 15}}, \"modality\": \"any\"},\\n  \"rl\": {\"algorithm\":\"policy-search\",\"episodes\": 5, \"exploration\":\"epsilon-greedy\", \"epsilon\": 0.2},\\n  \"candidate_strategy\": {\"k_paths\": {{$node['Config'].json.K_CANDIDATES || 10}}, \"diversity\": true},\\n  \"counterfactual_policy\": {\"variants\": [\"swap_electives\",\"accelerate_core\",\"balance_workload\",\"lower_cost\"]},\\n  \"explainability\": {\"per_step\": true, \"global\": true}\\n}",
+        "messages": [
+          { "text": "Student: {{$node['Normalize Input'].json.student_id}} | Career goal: {{$node['Normalize Input'].json.career_goal}}\\nAptitudes: {{$node['Normalize Input'].json.aptitudes}}\\nPreferences: {{$node['Normalize Input'].json.preferences}}\\nPolicy memory (optional): {{$node['Pick Policy Memory'].json.policy_memory}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    { "parameters": { "functionCode": "let plan; try{plan=JSON.parse(items[0].json.data||items[0].json||'{}')}catch{plan=items[0].json}; return [{json: plan}];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+
+    {
+      "parameters": {
+        "functionCode": "function arr(x){ if(!x) return []; if(Array.isArray(x)) return x; if(x.data){ try{return JSON.parse(x.data);}catch{} } return x.items||x.results||x.records||x; }\nconst courses = arr($node['Fetch Courses'].json).map(c=>({ id: c.id||c.code||c.title, title: c.title||c.name, credits: c.credits||parseInt($node['Config'].json.DEFAULT_CREDITS_PER_COURSE||3,10), skills: c.skills||c.learning_outcomes||[], modality: c.modality||'any', cost: c.cost_per_credit? (c.cost_per_credit*(c.credits||3)) : (c.cost||null) }));\nconst prereqsRaw = arr($node['Fetch Prerequisites'].json);\nconst prereqs = prereqsRaw.map(e=>({ from: e.prereq||e.from||e.req, to: e.course||e.to })).filter(e=>e.from && e.to);\nconst careers = arr($node['Fetch Career Target'].json);\nconst target = careers[0] || { title: $node['Normalize Input'].json.career_goal, required_skills: [] };\nconst required_skills = target.required_skills || target.skills || [];\n// Build graph indices\nconst idSet = new Set(courses.map(c=>c.id));\nconst edges = prereqs.filter(e=>idSet.has(e.from)&&idSet.has(e.to));\nconst indeg = {}; for(const c of courses){ indeg[c.id]=0; }\nfor(const e of edges){ indeg[e.to] = (indeg[e.to]||0)+1; }\nconst out = {}; for(const c of courses){ out[c.id]=[]; }\nfor(const e of edges){ out[e.to] = out[e.to]||[]; out[e.from] = out[e.from]||[]; out[e.from].push(e.to); }\nreturn [{ json: { courses, edges, indeg, out, target: { title: target.title, required_skills }, constraints: $node['Normalize Input'].json.constraints } }];"
+      },
+      "id": "BuildGraph",
+      "name": "Build Course Graph",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "functionCode": "const plan=$node['Parse Controller Plan'].json||{}; const k = parseInt(plan.candidate_strategy?.k_paths || $node['Config'].json.K_CANDIDATES || 10,10); const courses=$node['Build Course Graph'].json.courses; const indeg=JSON.parse(JSON.stringify($node['Build Course Graph'].json.indeg)); const out=$node['Build Course Graph'].json.out; const reqSkills=new Set(($node['Build Course Graph'].json.target.required_skills||[]).map(s=>String(s).toLowerCase())); const cons=$node['Build Course Graph'].json.constraints || {}; const maxTerms = cons.max_terms || parseInt($node['Config'].json.MAX_TERMS||8,10); const maxCPT = cons.max_credits_per_term || parseInt($node['Config'].json.MAX_CREDITS_PER_TERM||15,10);\n// index courses by id\nconst byId = {}; for(const c of courses){ byId[c.id]=c; }\n// skill weight heuristic\nfunction skillScore(c){ const s=(c.skills||[]).map(x=>String(x).toLowerCase()); let m=0; for(const t of s){ if(reqSkills.has(t)) m++; } return m + 0.1; }\n// initial available (no prereqs)\nlet avail = courses.filter(c=> (indeg[c.id]||0)===0 ).sort((a,b)=>skillScore(b)-skillScore(a));\nconst used = new Set(); const candidates=[];\nfor(let kidx=0;kidx<k && avail.length>0; kidx++){\n  const planTerms=[]; const localUsed=new Set(); const indegK=JSON.parse(JSON.stringify(indeg)); let pool=avail.slice(); let terms=0;\n  while(terms<maxTerms){ let credits=0; const term=[]; // greedy pick\n    pool.sort((a,b)=>skillScore(b)-skillScore(a));\n    for(const c of pool){ if(localUsed.has(c.id)) continue; if(credits + (c.credits||3) > maxCPT) continue; term.push(c.id); credits += (c.credits||3); localUsed.add(c.id); }\n    if(term.length===0) break; planTerms.push({ term: terms+1, courses: term });\n    // update indegrees\n    for(const cid of term){ for(const to of (out[cid]||[])){ indegK[to] = Math.max(0,(indegK[to]||0)-1); } }\n    // new pool: all with indeg 0 and not used\n    pool = courses.filter(c=> (indegK[c.id]||0)===0 && !localUsed.has(c.id));\n    terms++;\n  }\n  if(planTerms.length>0){ candidates.push({ id: 'cand_'+(kidx+1), sequence: planTerms }); }\n}\nreturn candidates.map(c=>({ json: c }));"
+      },
+      "id": "GenerateCandidates",
+      "name": "Generate Candidate Paths",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "batchSize": 1 }, "id": "SplitCandidates", "name": "Split Candidates", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Score a course sequence via multi-objective evaluation. Consider: career skill alignment, time-to-completion, workload balance per term, estimated cost, and prerequisite risk. Output STRICT JSON: {\"scores\": {\"career_alignment\":0..1, \"time_to_completion\":0..1, \"workload_balance\":0..1, \"cost\":0..1, \"prereq_risk\":0..1}, \"rationale\": [], \"soft_confidence\": 0..1 } (higher is better; cost is inverted affordability).",
+        "messages": [
+          {
+            "text": "Objective weights: {{$node['Parse Controller Plan'].json.objective_weights}}\\nConstraints: {{$node['Build Course Graph'].json.constraints}}\\nCareer target: {{$node['Build Course Graph'].json.target}}\\nSequence: {{$json}}\\nAptitudes: {{$node['Normalize Input'].json.aptitudes}}\\nPreferences: {{$node['Normalize Input'].json.preferences}}\\nCourse catalog (subset): {{ ($node['Fetch Courses'].json.items || $node['Fetch Courses'].json.results || $node['Fetch Courses'].json).slice ? ($node['Fetch Courses'].json.items || $node['Fetch Courses'].json.results || []).slice(0,200) : $node['Fetch Courses'].json }}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMScore",
+      "name": "LLM Score Candidate",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Propose counterfactual variants of the given sequence (swap electives, re-order to reduce risk/cost, accelerate core, balance workload). Output STRICT JSON: {\"alternatives\": [{\"label\":\"\",\"change\":\"\",\"expected_effect\":\"\",\"sequence\": [{\"term\":1,\"courses\":[\"\"]}] }], \"notes\": [] }",
+        "messages": [
+          {
+            "text": "Counterfactual policy: {{$node['Parse Controller Plan'].json.counterfactual_policy}}\\nOriginal sequence: {{$node['Split Candidates'].json}}\\nCareer target: {{$node['Build Course Graph'].json.target}}\\nConstraints: {{$node['Build Course Graph'].json.constraints}}"
+          }
+        ],
+        "options": { "temperature": 0.15 }
+      },
+      "id": "LLMCounterfactual",
+      "name": "LLM Counterfactuals",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}} const sc=safe($node['LLM Score Candidate'].json)||{}; const alts=safe($node['LLM Counterfactuals'].json)||{}; const w=$node['Parse Controller Plan'].json.objective_weights || {career_alignment:0.4,time_to_completion:0.2,workload_balance:0.15,cost:0.15,prereq_risk:0.10}; const s=sc.scores||{}; const objective=(w.career_alignment*(s.career_alignment||0))+(w.time_to_completion*(s.time_to_completion||0))+(w.workload_balance*(s.workload_balance||0))+(w.cost*(s.cost||0))+(w.prereq_risk*(s.prereq_risk||0)); const threshold=parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD||0.70); const soft=(Number(sc.soft_confidence||0)); const accepted = objective>=0.6 && soft>=threshold; const record={ session_id: $node['Normalize Input'].json.session_id, student_id: $node['Normalize Input'].json.student_id, career_goal: $node['Normalize Input'].json.career_goal, candidate_id: $node['Split Candidates'].json.id, sequence: $node['Split Candidates'].json.sequence, scores: s, objective_score: Number(objective.toFixed(4)), soft_confidence: Number(soft.toFixed(3)), rationale: sc.rationale||[], alternatives: alts.alternatives||[], constraints: $node['Build Course Graph'].json.constraints, weights: w, accepted, run_ts: new Date().toISOString() }; return [{ json: { record } }];"
+      },
+      "id": "BuildRecord",
+      "name": "Build JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "path_record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "session_id", "fieldType": "string", "fieldValue": "={{$json['record'].session_id}}" },
+              { "fieldName": "student_id", "fieldType": "string", "fieldValue": "={{$json['record'].student_id}}" },
+              { "fieldName": "candidate_id", "fieldType": "string", "fieldValue": "={{$json['record'].candidate_id}}" },
+              { "fieldName": "objective_score", "fieldType": "number", "fieldValue": "={{$json['record'].objective_score}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
+              { "fieldName": "accepted", "fieldType": "boolean", "fieldValue": "={{$json['record'].accepted}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "Pathways {{ $json['record'].accepted ? '✅ ACCEPT' : 'ℹ️ candidate' }} | Student: {{ $json['record'].student_id }} | Goal: {{ $json['record'].career_goal }}\\nCandidate: {{ $json['record'].candidate_id }} | Score: {{ $json['record'].objective_score }} | Conf: {{ $json['record'].soft_confidence }}\\nFirst term: {{ ($json['record'].sequence[0] && $json['record'].sequence[0].courses || []).join(', ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per Candidate",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextCandidate", "name": "Next Candidate", "type": "n8n-nodes-base.noOp", "typeVersion": 1 },
+
+    /* ------- Optional RL feedback loop (non-blocking) ------- */
+
+    {
+      "parameters": {
+        "path": "={{$node['Config'].json.FEEDBACK_WEBHOOK_PATH}}",
+        "options": { "responseData": "received", "responseCode": 200 }
+      },
+      "id": "FeedbackWebhook",
+      "name": "Webhook: Receive Pathways Feedback (optional)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Update policy memory from human feedback (reward/penalty) and recent candidates. Output STRICT JSON: {\"updated_weights\":{}, \"epsilon\":0..1, \"notes\":[] }",
+        "messages": [
+          {
+            "text": "Current policy memory: {{$node['Pick Policy Memory'].json.policy_memory}}\\nFeedback payload: {{$json}}"
+          }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMUpdatePolicy",
+      "name": "LLM: Update Policy",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "policy_memory", "fieldType": "string", "fieldValue": "={{JSON.stringify($json)}}" },
+              { "fieldName": "updated_ts", "fieldType": "string", "fieldValue": "={{new Date().toISOString()}}" }
+            ]
+          }
+        }
+      },
+      "id": "SavePolicy",
+      "name": "Save Policy Memory",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "Pathways feedback ingested. Policy memory updated."
+      },
+      "id": "DiscordAck",
+      "name": "Discord: Feedback Ack",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Webhook: Receive Pathways Request": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "Normalize Input", "type": "main", "index": 0 } ] ] },
+
+    "Normalize Input": { "main": [ [ { "node": "Load Policy Memory (optional)", "type": "main", "index": 0 } ] ] },
+
+    "Load Policy Memory (optional)": { "main": [ [ { "node": "Pick Policy Memory", "type": "main", "index": 0 } ] ] },
+
+    "Pick Policy Memory": { "main": [ [ { "node": "Fetch Student Profile", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Student Profile": { "main": [ [ { "node": "Fetch Career Target", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Career Target": { "main": [ [ { "node": "Fetch Programs", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Programs": { "main": [ [ { "node": "Fetch Courses", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Courses": { "main": [ [ { "node": "Fetch Prerequisites", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Prerequisites": { "main": [ [ { "node": "Fetch SkillsLex (optional)", "type": "main", "index": 0 } ] ] },
+
+    "Fetch SkillsLex (optional)": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
+
+    "Parse Controller Plan": { "main": [ [ { "node": "Build Course Graph", "type": "main", "index": 0 } ] ] },
+
+    "Build Course Graph": { "main": [ [ { "node": "Generate Candidate Paths", "type": "main", "index": 0 } ] ] },
+
+    "Generate Candidate Paths": { "main": [ [ { "node": "Split Candidates", "type": "main", "index": 0 } ] ] },
+
+    "Split Candidates": { "main": [ [ { "node": "LLM Score Candidate", "type": "main", "index": 0 } ] ] },
+
+    "LLM Score Candidate": { "main": [ [ { "node": "LLM Counterfactuals", "type": "main", "index": 0 } ] ] },
+
+    "LLM Counterfactuals": { "main": [ [ { "node": "Build JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per Candidate", "type": "main", "index": 0 }, { "node": "Next Candidate", "type": "main", "index": 0 } ] ] },
+
+    "Next Candidate": { "main": [ [ { "node": "Split Candidates", "type": "main", "index": 0 } ] ] },
+
+    "Webhook: Receive Pathways Feedback (optional)": { "main": [ [ { "node": "LLM: Update Policy", "type": "main", "index": 0 } ] ] },
+
+    "LLM: Update Policy": { "main": [ [ { "node": "Save Policy Memory", "type": "main", "index": 0 }, { "node": "Discord: Feedback Ack", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous Educational Pathways agent: RL-style course sequence search, multi-objective optimization, counterfactual alternatives, personalized to aptitudes/preferences, Discord FYIs, and JSON artifacts."
+  }
+}

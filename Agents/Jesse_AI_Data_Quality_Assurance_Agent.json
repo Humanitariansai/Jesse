@@ -1,0 +1,281 @@
+{
+  "_comment": "Jesse — AI_Data_Quality_Assurance_Agent.json",
+  "name": "Jesse — AI Data Quality Assurance Agent (Autonomous, Discord, JSON)",
+  "nodes": [
+    { "parameters": {}, "id": "Start", "name": "Start", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "JOBS_SOURCE_URL", "value": "https://api.example.com/jesse/job_postings" },
+            { "name": "SYLLABI_SOURCE_URL", "value": "https://api.example.com/jesse/syllabi" },
+            { "name": "SKILLSLEX_SOURCE_URL", "value": "https://api.example.com/jesse/skillslex" },
+            { "name": "TEMPORAL_SNAPSHOT_URL", "value": "https://api.example.com/jesse/history" },
+            { "name": "JSON_SINK_URL", "value": "" },
+            { "name": "DISCORD_CHANNEL_ID", "value": "" },
+            { "name": "LANGUAGE", "value": "en" },
+            { "name": "REGION", "value": "United States" },
+            { "name": "CONFIDENCE_THRESHOLD", "value": "0.70" },
+            { "name": "DUP_SIM_THRESHOLD", "value": "0.86" },
+            { "name": "MAX_ITEMS", "value": "200" }
+          ]
+        }
+      },
+      "id": "Config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "You are the LLM Controller for Project Jesse — Data Quality Assurance. Plan an autonomous QA run: (1) anomaly rules for schema/content, (2) duplicate detection policy (self-supervised signatures & similarity thresholds), (3) uncertainty quantification strategy, (4) temporal consistency checks for evolving skills. Output JSON ONLY:\\n{\\n  \"anomaly_rules\": [\"title/company must be non-empty\", \"posted_date within 3y\", \"skills non-empty if description mentions 'required'\"],\\n  \"dup_policy\": {\"signature_fields\": {\"job\":[\"title\",\"company\",\"location\"],\"syllabus\":[\"course_title\",\"instructor\",\"term\"],\"skill\":[\"skill\",\"definition\"]}, \"normalize\": [\"lowercase\",\"strip_punct\",\"collapse_whitespace\"], \"sim_threshold\": 0.86 },\\n  \"uncertainty_policy\": {\"fallback_estimator\": \"coverage-based\", \"weights\": {\"field_coverage\":0.6, \"model_confidence\":0.4}},\\n  \"temporal_policy\": {\"window_days\": 540, \"drift_terms\": [\"definition\",\"synonyms\",\"related\"], \"flag_if_jaccard_drop_below\": 0.55}\\n}",
+        "messages": [
+          { "text": "Region: {{$node['Config'].json.REGION}} | Language: {{$node['Config'].json.LANGUAGE}} | Confidence threshold: {{$node['Config'].json.CONFIDENCE_THRESHOLD}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMPlan",
+      "name": "LLM Controller (Plan)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    { "parameters": { "functionCode": "let plan; try{plan=JSON.parse(items[0].json.data||items[0].json||'{}')}catch{plan=items[0].json}; return [{json: plan}];" }, "id": "ParsePlan", "name": "Parse Controller Plan", "type": "n8n-nodes-base.code", "typeVersion": 2 },
+
+    { "parameters": { "url": "={{$node['Config'].json.JOBS_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchJobs", "name": "Fetch Job Postings", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.SYLLABI_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSyllabi", "name": "Fetch Syllabi", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+    { "parameters": { "url": "={{$node['Config'].json.SKILLSLEX_SOURCE_URL}}", "authentication": "none", "ignoreResponseCode": true }, "id": "FetchSkillsLex", "name": "Fetch SkillsLex", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4 },
+
+    {
+      "parameters": {
+        "operation": "getAll",
+        "dataMode": "autoMapInputData",
+        "schema": { "schemaType": "define", "fields": [ { "fieldName": "dup_index_blob", "type": "string" } ] }
+      },
+      "id": "LoadDupIndex",
+      "name": "Load Duplicate Index (optional)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function asArr(x){if(!x)return[]; if(Array.isArray(x))return x; if(x.data){try{return JSON.parse(x.data)}catch{}} return x.items||x.results||x;}\nconst jobs=asArr($node['Fetch Job Postings'].json).map(r=>({type:'job', record:r}));\nconst syll=asArr($node['Fetch Syllabi'].json).map(r=>({type:'syllabus', record:r}));\nconst skls=asArr($node['Fetch SkillsLex'].json).map(r=>({type:'skill', record:r}));\nconst all=[...jobs, ...syll, ...skls];\nconst max=parseInt($node['Config'].json.MAX_ITEMS||200,10);\nreturn all.slice(0,max).map(x=>({json:x}));"
+      },
+      "id": "BuildStream",
+      "name": "Build Unified Stream",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    { "parameters": { "batchSize": 1 }, "id": "SplitItems", "name": "Split Items", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1 },
+
+    {
+      "parameters": {
+        "functionCode": "const plan=$node['Parse Controller Plan'].json||{}; const policy=plan.dup_policy||{}; const fields=(policy.signature_fields||{})[$json.type]||[];\nfunction norm(s){ if(s==null)return ''; s=String(s).toLowerCase(); s=s.replace(/[^\\p{L}\\p{N}\\s]/gu,''); s=s.replace(/\\s+/g,' ').trim(); return s; }\nconst sigParts=fields.map(f=>norm($json.record[f]));\nconst canonical_text=sigParts.join(' | ');\n// Simple 32-bit hash\nlet hash=0; for(let i=0;i<canonical_text.length;i++){hash=((hash<<5)-hash + canonical_text.charCodeAt(i))|0;}\nreturn [{json:{ type:$json.type, record:$json.record, signature:{canonical_text, hash} }}];"
+      },
+      "id": "ComputeSignature",
+      "name": "Compute Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Run anomaly checks over the provided record using the given rules. Output STRICT JSON: {\"anomalies\":[{\"field\":\"\",\"issue\":\"\",\"severity\":\"low|medium|high\"}], \"schema_ok\":true|false }",
+        "messages": [
+          { "text": "Anomaly rules:\\n{{$node['Parse Controller Plan'].json.anomaly_rules}}\\n\\nRecord type: {{$node['Compute Signature'].json.type}}\\nRecord JSON:\\n{{$node['Compute Signature'].json.record}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMAnomaly",
+      "name": "LLM Anomaly Detection",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst dupIndexBlob=$node['Load Duplicate Index (optional)'].json.dup_index_blob||'[]';\nlet dupIndex=[]; try{ dupIndex=JSON.parse(dupIndexBlob);}catch{dupIndex=[];}\nconst current=$node['Compute Signature'].json.signature||{};\n// Simple similarity: exact hash OR Jaccard on token sets of canonical_text\nfunction jaccard(a,b){const A=new Set(a.split(' ')); const B=new Set(b.split(' ')); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size; return uni? inter/uni : 0; }\nlet isDup=false; let bestSim=0; let matchSig=null;\nfor(const s of dupIndex){ if(s.hash===current.hash){ isDup=true; bestSim=1; matchSig=s; break; } else { const sim=jaccard(s.canonical_text||'', current.canonical_text||''); if(sim>bestSim){bestSim=sim; matchSig=s;} }\n}\nconst th=parseFloat($node['Config'].json.DUP_SIM_THRESHOLD||0.86);\nif(bestSim>=th) isDup=true;\nreturn [{ json: { signature: current, is_duplicate: isDup, best_similarity: Number(bestSim.toFixed(4)), match_signature: matchSig } }];"
+      },
+      "id": "DetectDuplicate",
+      "name": "Duplicate Detection (Self-Supervised)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Estimate uncertainty if the record lacks a trustworthy confidence field. Consider field coverage, internal consistency, and anomaly severity. Output STRICT JSON: {\"uncertainty\": 0..1, \"notes\": [] } where higher = more uncertainty.",
+        "messages": [
+          { "text": "Uncertainty policy:\\n{{$node['Parse Controller Plan'].json.uncertainty_policy}}\\nRecord type: {{$node['Compute Signature'].json.type}}\\nRecord JSON:\\n{{$node['Compute Signature'].json.record}}\\nAnomalies:\\n{{$node['LLM Anomaly Detection'].json.data || $node['LLM Anomaly Detection'].json}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMUncertainty",
+      "name": "LLM Uncertainty Estimator",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.TEMPORAL_SNAPSHOT_URL}}",
+        "authentication": "none",
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "type", "value": "={{$node['Compute Signature'].json.type}}" },
+            { "name": "key", "value": "={{$node['Compute Signature'].json.signature.hash}}" },
+            { "name": "window_days", "value": "={{$node['Parse Controller Plan'].json.temporal_policy.window_days || 540}}" }
+          ]
+        },
+        "ignoreResponseCode": true
+      },
+      "id": "FetchTemporal",
+      "name": "Fetch Temporal Snapshot (optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "systemMessage": "Assess temporal consistency vs. historical snapshots. Compute drift of target terms. Output STRICT JSON: {\"temporal_ok\": true|false, \"drift_score\": 0..1, \"changed_terms\": [], \"notes\": [] } where higher drift_score = more change.",
+        "messages": [
+          { "text": "Temporal policy:\\n{{$node['Parse Controller Plan'].json.temporal_policy}}\\nCurrent record:\\n{{$node['Compute Signature'].json.record}}\\nSnapshots (optional):\\n{{$node['Fetch Temporal Snapshot (optional)'].json}}" }
+        ],
+        "options": { "temperature": 0.1 }
+      },
+      "id": "LLMTemporal",
+      "name": "LLM Temporal Consistency",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 5
+    },
+
+    {
+      "parameters": {
+        "functionCode": "function safe(j){try{return JSON.parse(j.data||j);}catch{return j;}}\nconst anomalies = safe($node['LLM Anomaly Detection'].json)||{};\nconst uncertain = safe($node['LLM Uncertainty Estimator'].json)||{};\nconst temporal = safe($node['LLM Temporal Consistency'].json)||{};\nconst confField = $node['Compute Signature'].json.record?.soft_confidence;\nconst fallbackUnc = Number(uncertain.uncertainty ?? 0);\nconst soft_conf = typeof confField==='number' ? confField : Math.max(0, 1 - fallbackUnc);\nconst is_dup = $node['Duplicate Detection (Self-Supervised)'].json.is_duplicate;\nconst best_sim = $node['Duplicate Detection (Self-Supervised)'].json.best_similarity;\nconst confThresh = parseFloat($node['Config'].json.CONFIDENCE_THRESHOLD||0.70);\nconst schemaOk = !!anomalies.schema_ok;\nconst highSev = (anomalies.anomalies||[]).some(a=>String(a.severity||'').toLowerCase()==='high');\nconst needs_review = is_dup || !schemaOk || highSev || soft_conf < confThresh || (temporal.temporal_ok===false);\nconst itemType = $node['Compute Signature'].json.type;\nconst rec = $node['Compute Signature'].json.record || {};\nconst record = {\n  item_type: itemType,\n  item_id: rec.id || rec.code || rec.title || rec.skill || rec.source_url || null,\n  signature: $node['Compute Signature'].json.signature,\n  duplicate: { is_duplicate: is_dup, best_similarity: best_sim, match_signature: $node['Duplicate Detection (Self-Supervised)'].json.match_signature || null },\n  anomalies: anomalies.anomalies || [],\n  schema_ok: schemaOk,\n  uncertainty: fallbackUnc,\n  soft_confidence: Number(soft_conf.toFixed(3)),\n  temporal: { ok: temporal.temporal_ok!==false, drift_score: temporal.drift_score ?? null, changed_terms: temporal.changed_terms || [] },\n  thresholds: { confidence: confThresh, dup_similarity: parseFloat($node['Config'].json.DUP_SIM_THRESHOLD||0.86) },\n  needs_review: needs_review,\n  run_ts: new Date().toISOString(),\n  source_excerpt: rec.description || rec.definition || rec.course_title || null\n};\nreturn [{ json: { record } }];"
+      },
+      "id": "BuildQARecord",
+      "name": "Build QA JSON Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "qa_record_json", "fieldType": "string", "fieldValue": "={{JSON.stringify($json['record'])}}" },
+              { "fieldName": "item_type", "fieldType": "string", "fieldValue": "={{$json['record'].item_type}}" },
+              { "fieldName": "item_id", "fieldType": "string", "fieldValue": "={{$json['record'].item_id || ''}}" },
+              { "fieldName": "is_duplicate", "fieldType": "boolean", "fieldValue": "={{$json['record'].duplicate.is_duplicate}}" },
+              { "fieldName": "needs_review", "fieldType": "boolean", "fieldValue": "={{$json['record'].needs_review}}" },
+              { "fieldName": "soft_confidence", "fieldType": "number", "fieldValue": "={{$json['record'].soft_confidence}}" },
+              { "fieldName": "run_ts", "fieldType": "string", "fieldValue": "={{$json['record'].run_ts}}" }
+            ]
+          }
+        }
+      },
+      "id": "SaveDataStore",
+      "name": "Save to Data Store (JSON)",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "operation": "create",
+        "fields": {
+          "fieldsUi": {
+            "field": [
+              { "fieldName": "dup_index_blob", "fieldType": "string", "fieldValue": "={{(() => { let blob=$node['Load Duplicate Index (optional)'].json.dup_index_blob||'[]'; let arr=[]; try{arr=JSON.parse(blob)}catch{arr=[]}; arr.push($node['Compute Signature'].json.signature); return JSON.stringify(arr.slice(-5000)); })()}}" }
+            ]
+          }
+        }
+      },
+      "id": "UpdateDupIndex",
+      "name": "Update Duplicate Index",
+      "type": "n8n-nodes-base.dataStore",
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "url": "={{$node['Config'].json.JSON_SINK_URL}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={{$json['record']}}",
+        "ignoreResponseCode": true,
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "PostJSON",
+      "name": "POST to JSON Sink (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "={{$node['Config'].json.DISCORD_CHANNEL_ID}}",
+        "message": "QA {{ $json['record'].needs_review ? '⚠️ needs_review' : '✅ ok' }} | Type: {{ $json['record'].item_type }} | ID: {{ $json['record'].item_id }}\\nConf: {{ $json['record'].soft_confidence }} | Dup: {{ $json['record'].duplicate.is_duplicate }} ({{ $json['record'].duplicate.best_similarity }})\\nAnomalies: {{ ($json['record'].anomalies || []).slice(0,3).map(a=>a.field+':'+a.issue).join(' | ') }}\\n(Informational only; pipeline continues automatically.)"
+      },
+      "id": "DiscordNotify",
+      "name": "Discord: Notify per QA Item",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "credentials": { "discordApi": { "id": "DISCORD_BOT_TOKEN" } }
+    },
+
+    { "parameters": {}, "id": "NextItem", "name": "Next Item", "type": "n8n-nodes-base.noOp", "typeVersion": 1 }
+  ],
+  "connections": {
+    "Start": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+
+    "Config": { "main": [ [ { "node": "LLM Controller (Plan)", "type": "main", "index": 0 }, { "node": "Fetch Job Postings", "type": "main", "index": 0 }, { "node": "Fetch Syllabi", "type": "main", "index": 0 }, { "node": "Fetch SkillsLex", "type": "main", "index": 0 }, { "node": "Load Duplicate Index (optional)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Controller (Plan)": { "main": [ [ { "node": "Parse Controller Plan", "type": "main", "index": 0 } ] ] },
+
+    "Parse Controller Plan": { "main": [ [ { "node": "Build Unified Stream", "type": "main", "index": 0 } ] ] },
+
+    "Build Unified Stream": { "main": [ [ { "node": "Split Items", "type": "main", "index": 0 } ] ] },
+
+    "Split Items": { "main": [ [ { "node": "Compute Signature", "type": "main", "index": 0 } ] ] },
+
+    "Compute Signature": { "main": [ [ { "node": "LLM Anomaly Detection", "type": "main", "index": 0 }, { "node": "Duplicate Detection (Self-Supervised)", "type": "main", "index": 0 } ] ] },
+
+    "LLM Anomaly Detection": { "main": [ [ { "node": "LLM Uncertainty Estimator", "type": "main", "index": 0 } ] ] },
+
+    "Duplicate Detection (Self-Supervised)": { "main": [ [ { "node": "Fetch Temporal Snapshot (optional)", "type": "main", "index": 0 } ] ] },
+
+    "Fetch Temporal Snapshot (optional)": { "main": [ [ { "node": "LLM Temporal Consistency", "type": "main", "index": 0 } ] ] },
+
+    "LLM Temporal Consistency": { "main": [ [ { "node": "Build QA JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "LLM Uncertainty Estimator": { "main": [ [ { "node": "Build QA JSON Record", "type": "main", "index": 0 } ] ] },
+
+    "Build QA JSON Record": { "main": [ [ { "node": "Save to Data Store (JSON)", "type": "main", "index": 0 }, { "node": "Update Duplicate Index", "type": "main", "index": 0 }, { "node": "POST to JSON Sink (Optional)", "type": "main", "index": 0 }, { "node": "Discord: Notify per QA Item", "type": "main", "index": 0 }, { "node": "Next Item", "type": "main", "index": 0 } ] ] },
+
+    "Next Item": { "main": [ [ { "node": "Split Items", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "workflowVersion": "1.0",
+    "description": "Autonomous QA agent: anomaly detection, self-supervised duplicate detection, uncertainty estimation, temporal consistency checks, non-blocking Discord FYIs, and JSON outputs with a persistent duplicate index."
+  }
+}
