@@ -11,7 +11,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 3. **Open the `Config` node** in each workflow to set URLs, thresholds, and channel IDs.
 4. **Run** the `Start` or trigger node. Discord messages are informational and never block execution.
 
-> Import safety: all JSON uses the **single-array fan-out** pattern in `connections` to avoid the n8n `undefined[0]` import bug (don’t place links in `main[1]` for single-output nodes).
+> Import safety: all JSON uses the **single-array fan-out** pattern in `connections` to avoid the n8n `undefined[0]` import bug (don't place links in `main[1]` for single-output nodes).
 
 ---
 
@@ -20,6 +20,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 ### 1) AI Job Posting Harvester
 
 **File:** [Jesse — AI\_Job\_Posting\_Harvester.json](./Jesse_AI_Job_Posting_Harvester.json)
+
+![AI Job Posting Harvester Workflow](./Jesse_AI_Job_Posting_Harvester.png)
 
 **What it does**
 
@@ -39,6 +41,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 ### 2) AI Syllabi Analysis Agent
 
 **File:** [Jesse — AI\_Syllabi\_Analysis\_Agent.json](./Jesse_AI_Syllabi_Analysis_Agent.json)
+
+![AI Syllabi Analysis Agent Workflow](./Jesse_AI_Syllabi_Analysis_Agent.png)
 
 **What it does**
 
@@ -60,6 +64,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_SkillsLex\_Enrichment\_Agent.json](./Jesse_AI_SkillsLex_Enrichment_Agent.json)
 
+![AI SkillsLex Enrichment Agent Workflow](./Jesse_AI_SkillsLex_Enrichment_Agent.png)
+
 **What it does**
 
 * LLM **few-shot** guided generation of full lexical entries per skill (definition, relations).
@@ -79,6 +85,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Cross\_Domain\_Alignment\_Agent.json](./Jesse_AI_Cross_Domain_Alignment_Agent.json)
 
+![AI Cross-Domain Alignment Agent Workflow](./Jesse_AI_Cross_Domain_Alignment_Agent.png)
+
 **What it does**
 
 * LLM controller defines **multi-objective** weights & acceptance thresholds.
@@ -97,6 +105,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 ### 5) AI Data Quality Assurance Agent
 
 **File:** [Jesse — AI\_Data\_Quality\_Assurance\_Agent.json](./Jesse_AI_Data_Quality_Assurance_Agent.json)
+
+![AI Data Quality Assurance Agent Workflow](./Jesse_AI_Data_Quality_Assurance_Agent.png)
 
 **What it does**
 
@@ -118,6 +128,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_Trend\_Analysis\_Agent.json](./Jesse_AI_Trend_Analysis_Agent.json)
 
+![AI Trend Analysis Agent Workflow](./Jesse_AI_Trend_Analysis_Agent.png)
+
 **What it does**
 
 * Builds **per-skill time series** from postings (daily bins).
@@ -137,6 +149,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 **File:** [Jesse — AI\_User\_Interaction\_Agent.json](./Jesse_AI_User_Interaction_Agent.json)
 
+![AI User Interaction Agent Workflow](./Jesse_AI_User_Interaction_Agent.png)
+
 **What it does**
 
 * **Webhook** entrypoint for student queries.
@@ -155,6 +169,8 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 ### 8) AI Educational Pathways Agent
 
 **File:** [Jesse — AI\_Educational\_Pathways\_Agent.json](./Jesse_AI_Educational_Pathways_Agent.json)
+
+![AI Educational Pathways Agent Workflow](./Jesse_AI_Educational_Pathways_Agent.png)
 
 **What it does**
 
@@ -185,7 +201,7 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
   }
   ```
 
-  Never add `main[1]` for single-output nodes—this is the cause of the classic **“Cannot read properties of undefined (reading '0')”** import error.
+  Never add `main[1]` for single-output nodes—this is the cause of the classic **"Cannot read properties of undefined (reading '0')"** import error.
 
 ---
 
@@ -207,4 +223,4 @@ This repo contains eight autonomous, Discord-integrated n8n workflows (JSON) tha
 
 ## License & attribution
 
-These workflows implement the architecture described in **Project Jesse** and honor Jesse B. Davis’s guidance legacy by connecting education and careers with modern AI. Adjust, extend, or compose them as needed for your deployment.
+These workflows implement the architecture described in **Project Jesse** and honor Jesse B. Davis's guidance legacy by connecting education and careers with modern AI. Adjust, extend, or compose them as needed for your deployment.
